@@ -90,6 +90,54 @@ def fcfs(processes):
         process.state = "Terminated"  # Process completes execution
     return processes
 
+def round_robin(processes, time_quantum):
+    """
+    Implements the Round Robin scheduling algorithm.
+    Args:
+        processes (list): List of Process objects.
+        time_quantum (int): Time slice for each process.
+    Returns:
+        list: List of processes with updated waiting_time and turnaround_time.
+    """
+    queue = []
+    current_time = 0
+    processes = processes.copy()  # Work on a copy to avoid modifying the original list
+
+    print("\nStarting Round Robin Scheduling...")
+    print(f"Time Quantum: {time_quantum}")
+
+    while processes or queue:
+        # Add processes to the queue that have arrived by the current time
+        while processes and processes[0].arrival_time <= current_time:
+            process = processes.pop(0)
+            queue.append(process)
+            print(f"Time {current_time}: Added Process {process.pid} ({process.name}) to the queue.")
+
+        if queue:
+            process = queue.pop(0)
+            print(f"Time {current_time}: Executing Process {process.pid} ({process.name}), Remaining Time: {process.remaining_time}")
+
+            if process.remaining_time > time_quantum:
+                # Process executes for the time quantum
+                current_time += time_quantum
+                process.remaining_time -= time_quantum
+                queue.append(process)  # Add back to the queue
+                print(f"Time {current_time}: Process {process.pid} ({process.name}) added back to the queue. Remaining Time: {process.remaining_time}")
+            else:
+                # Process completes execution
+                current_time += process.remaining_time
+                process.waiting_time = current_time - process.arrival_time - process.burst_time
+                process.turnaround_time = process.waiting_time + process.burst_time
+                process.state = "Terminated"  # Process completes execution
+                print(f"Time {current_time}: Process {process.pid} ({process.name}) completed. Waiting Time: {process.waiting_time}, Turnaround Time: {process.turnaround_time}")
+        else:
+            # No processes in the queue, increment time
+            current_time += 1
+            print(f"Time {current_time}: No processes in the queue. Incrementing time.")
+
+    print("Round Robin Scheduling completed.")
+    return processes
+
 # Step 4: Main Function to Run Everything
 if __name__ == "__main__":
     # Fetch real processes
@@ -104,4 +152,10 @@ if __name__ == "__main__":
     print("\nFCFS Results:")
     fcfs_processes = fcfs(process_objects.copy())
     for process in fcfs_processes:
+        print(process)
+
+    # Run Round Robin
+    print("\nRound Robin Results:")
+    rr_processes = round_robin(process_objects.copy(), time_quantum=2)
+    for process in rr_processes:
         print(process)
