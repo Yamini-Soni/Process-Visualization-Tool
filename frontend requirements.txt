@@ -1,4 +1,4 @@
-PySide6
-psutil
-pyqtgraph
-numpy 
+PySide6>=6.6.1
+psutil>=5.9.8
+pyqtgraph>=0.13.3
+numpy>=1.26.4
