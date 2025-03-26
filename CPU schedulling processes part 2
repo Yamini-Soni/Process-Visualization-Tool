@@ -1,0 +1,106 @@
+import psutil
+import random
+from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtChart import QChart, QChartView, QBarSet, QBarSeries, QBarCategoryAxis
+from PyQt5.QtGui import QPainter
+from matplotlib import pyplot as plt
+
+# Function to fetch process details
+def fetch_process_data():
+    processes = []
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            pid = proc.info['pid']
+            name = proc.info['name']
+            burst_time = random.randint(1, 10)  # Random burst time for simulation
+            priority = random.randint(1, 5)    # Random priority for simulation
+            processes.append({'pid': pid, 'name': name, 'burst_time': burst_time, 'priority': priority})
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    return processes
+
+# Function to calculate SJF scheduling
+def sjf_scheduling(processes):
+    processes = sorted(processes, key=lambda x: x['burst_time'])
+    completion_time = 0
+    for i, proc in enumerate(processes):
+        completion_time += proc['burst_time']
+        proc['completion_time'] = completion_time
+        proc['turnaround_time'] = proc['completion_time']
+        proc['waiting_time'] = proc['turnaround_time'] - proc['burst_time']
+        proc['process_label'] = f"P{i}"
+    return processes
+
+# Function to calculate Priority scheduling
+def priority_scheduling(processes):
+    processes = sorted(processes, key=lambda x: x['priority'])
+    completion_time = 0
+    for i, proc in enumerate(processes):
+        completion_time += proc['burst_time']
+        proc['completion_time'] = completion_time
+        proc['turnaround_time'] = proc['completion_time']
+        proc['waiting_time'] = proc['turnaround_time'] - proc['burst_time']
+        proc['process_label'] = f"P{i}"
+    return processes
+
+# Function to plot Gantt Chart
+def plot_gantt_chart(processes, title):
+    start_time = 0
+    for proc in processes:
+        plt.barh(y=proc['process_label'], width=proc['burst_time'], left=start_time, color='skyblue', edgecolor='black')
+        start_time += proc['burst_time']
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Processes")
+    plt.show()
+
+# PyQt5 App for displaying the process table
+class ProcessTableApp(QMainWindow):
+    def __init__(self, processes, title):
+        super().__init__()
+        self.setWindowTitle(title)
+
+        self.table_widget = QTableWidget()
+        self.table_widget.setRowCount(len(processes))
+        self.table_widget.setColumnCount(6)
+        self.table_widget.setHorizontalHeaderLabels(["PID", "Name", "Burst Time", "Priority", "Turnaround Time", "Waiting Time"])
+
+        for i, proc in enumerate(processes):
+            self.table_widget.setItem(i, 0, QTableWidgetItem(str(proc['pid'])))
+            self.table_widget.setItem(i, 1, QTableWidgetItem(proc['name']))
+            self.table_widget.setItem(i, 2, QTableWidgetItem(str(proc['burst_time'])))
+            self.table_widget.setItem(i, 3, QTableWidgetItem(str(proc['priority'])))
+            self.table_widget.setItem(i, 4, QTableWidgetItem(str(proc['turnaround_time'])))
+            self.table_widget.setItem(i, 5, QTableWidgetItem(str(proc['waiting_time'])))
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.table_widget)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+if __name__ == "__main__":
+    # Fetch process data
+    process_data = fetch_process_data()
+
+    # Perform SJF scheduling
+    sjf_result = sjf_scheduling(process_data.copy())
+    
+    # Perform Priority scheduling
+    priority_result = priority_scheduling(process_data.copy())
+
+    # Plot Gantt Charts
+    plot_gantt_chart(sjf_result, "SJF Scheduling Gantt Chart")
+    plot_gantt_chart(priority_result, "Priority Scheduling Gantt Chart")
+
+    # Display process table
+    app = QApplication([])
+    window_sjf = ProcessTableApp(sjf_result, "SJF Scheduling Process Table")
+    window_priority = ProcessTableApp(priority_result, "Priority Scheduling Process Table")
+    window_sjf.show()
+    window_priority.show()
+    app.exec_()
+
+    # Exit after showing output once
+    exit()
