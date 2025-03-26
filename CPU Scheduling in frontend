@@ -1,7 +1,6 @@
 import sys
 import psutil
 import random
-import subprocess
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
@@ -14,7 +13,6 @@ from collections import deque
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 class ThemeColors:
     DARK = {
@@ -91,10 +89,21 @@ class SchedulingVisualizer(QDialog):
         
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(15)
         
-        # Control panel
+        # Control panel with better organization
         control_panel = QFrame()
-        control_layout = QHBoxLayout(control_panel)
+        control_panel.setFrameShape(QFrame.StyledPanel)
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(15, 15, 15, 15)
+        control_layout.setSpacing(15)
+        
+        # Algorithm selection group
+        algo_group = QGroupBox("Algorithm Selection")
+        algo_layout = QGridLayout(algo_group)
+        algo_layout.setContentsMargins(10, 15, 10, 15)
+        algo_layout.setSpacing(15)
         
         self.algorithm_combo = QComboBox()
         self.algorithm_combo.addItems([
@@ -104,31 +113,49 @@ class SchedulingVisualizer(QDialog):
             "Priority Scheduling"
         ])
         
-        self.quantum_label = QLabel("Time Quantum:")
+        # Quantum input (only for Round Robin)
+        self.quantum_label = QLabel("Time Quantum (ms):")
         self.quantum_spin = QSpinBox()
         self.quantum_spin.setRange(1, 100)
         self.quantum_spin.setValue(4)
         self.quantum_label.setVisible(False)
         self.quantum_spin.setVisible(False)
         
-        self.generate_btn = QPushButton("Generate Processes")
-        self.run_btn = QPushButton("Run Scheduling")
+        algo_layout.addWidget(QLabel("Select Algorithm:"), 0, 0)
+        algo_layout.addWidget(self.algorithm_combo, 0, 1)
+        algo_layout.addWidget(self.quantum_label, 1, 0)
+        algo_layout.addWidget(self.quantum_spin, 1, 1)
+        
+        # Button group
+        button_group = QGroupBox("Actions")
+        button_layout = QHBoxLayout(button_group)
+        button_layout.setContentsMargins(10, 15, 10, 15)
+        button_layout.setSpacing(20)
+        
+        self.generate_btn = QPushButton("🔄 Generate Processes")
+        self.generate_btn.setStyleSheet("font-weight: bold;")
+        self.generate_btn.setFixedHeight(40)
+        
+        self.run_btn = QPushButton("▶ Run Scheduling")
+        self.run_btn.setStyleSheet("font-weight: bold; background-color: #4CAF50; color: white;")
+        self.run_btn.setFixedHeight(40)
         self.run_btn.setEnabled(False)
         
-        control_layout.addWidget(QLabel("Algorithm:"))
-        control_layout.addWidget(self.algorithm_combo)
-        control_layout.addWidget(self.quantum_label)
-        control_layout.addWidget(self.quantum_spin)
-        control_layout.addWidget(self.generate_btn)
-        control_layout.addWidget(self.run_btn)
-        control_layout.addStretch()
+        button_layout.addWidget(self.generate_btn)
+        button_layout.addWidget(self.run_btn)
+        
+        control_layout.addWidget(algo_group)
+        control_layout.addWidget(button_group)
         
         # Results display
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.North)
+        self.tabs.setDocumentMode(True)
         
         # Process table tab
         self.table_tab = QWidget()
         table_layout = QVBoxLayout(self.table_tab)
+        table_layout.setContentsMargins(5, 5, 5, 5)
         
         self.process_table = QTableWidget()
         self.process_table.setColumnCount(8)
@@ -137,18 +164,23 @@ class SchedulingVisualizer(QDialog):
             "Completion", "Turnaround", "Waiting"
         ])
         self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.process_table.verticalHeader().setVisible(False)
+        self.process_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.process_table.setSelectionMode(QTableWidget.SingleSelection)
         
         # Stats display
         stats_frame = QFrame()
         stats_layout = QHBoxLayout(stats_frame)
+        stats_layout.setContentsMargins(10, 10, 10, 10)
         
         self.avg_turnaround_label = QLabel("Avg Turnaround: -")
         self.avg_waiting_label = QLabel("Avg Waiting: -")
         self.throughput_label = QLabel("Throughput: -")
         
-        stats_layout.addWidget(self.avg_turnaround_label)
-        stats_layout.addWidget(self.avg_waiting_label)
-        stats_layout.addWidget(self.throughput_label)
+        for label in [self.avg_turnaround_label, self.avg_waiting_label, self.throughput_label]:
+            label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            stats_layout.addWidget(label)
+        
         stats_layout.addStretch()
         
         table_layout.addWidget(self.process_table)
@@ -157,14 +189,15 @@ class SchedulingVisualizer(QDialog):
         # Gantt chart tab
         self.gantt_tab = QWidget()
         gantt_layout = QVBoxLayout(self.gantt_tab)
+        gantt_layout.setContentsMargins(5, 5, 5, 5)
         
         self.figure = Figure(figsize=(10, 4), dpi=100)
         self.canvas = FigureCanvas(self.figure)
         
         gantt_layout.addWidget(self.canvas)
         
-        self.tabs.addTab(self.table_tab, "Process Table")
-        self.tabs.addTab(self.gantt_tab, "Gantt Chart")
+        self.tabs.addTab(self.table_tab, "📋 Process Table")
+        self.tabs.addTab(self.gantt_tab, "📊 Gantt Chart")
         
         layout.addWidget(control_panel)
         layout.addWidget(self.tabs)
@@ -212,6 +245,7 @@ class SchedulingVisualizer(QDialog):
         
         self.update_process_table()
         self.run_btn.setEnabled(True)
+        self.run_btn.setStyleSheet("font-weight: bold; background-color: #4CAF50; color: white;")
         
     def update_process_table(self):
         self.process_table.setRowCount(len(self.processes))
@@ -436,6 +470,10 @@ class SchedulingVisualizer(QDialog):
         ax.set_xlim(0, max_time + 1)
         
         self.canvas.draw()
+
+# ... [Rest of the code including AlertPanel, ProcessControlPanel, and SystemMonitor classes remains unchanged] ...
+
+
 
 class AlertPanel(QFrame):
     def __init__(self, parent=None):
