@@ -1,13 +1,20 @@
 import sys
 import psutil
-import datetime
+import random
+import subprocess
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 import pyqtgraph as pg
 import numpy as np
 from datetime import datetime
-import platform
+from collections import deque
+
+# Matplotlib imports for Gantt chart
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 class ThemeColors:
     DARK = {
@@ -25,17 +32,17 @@ class ThemeColors:
     }
     
     LIGHT = {
-        'primary_bg': '#FFFFFF',  # Pure White
-        'secondary_bg': '#F5F5F5',  # Light Gray
-        'text': '#333333',  # Dark Gray
-        'border': '#D3D3D3',  # Light Gray for borders
-        'progress_normal': '#32CD32',  # Lime Green for success
-        'progress_warning': '#FFD700',  # Gold for warning
-        'progress_critical': '#FF4500',  # Orange Red for error
-        'graph_cpu': '#1E90FF',  # Dodger Blue
-        'graph_memory': '#32CD32',  # Lime Green
-        'button_refresh': '#1E90FF',  # Dodger Blue
-        'button_scheduling': '#FF8C00'  # Dark Orange
+        'primary_bg': '#FFFFFF',
+        'secondary_bg': '#F5F5F5',
+        'text': '#333333',
+        'border': '#D3D3D3',
+        'progress_normal': '#32CD32',
+        'progress_warning': '#FFD700',
+        'progress_critical': '#FF4500',
+        'graph_cpu': '#1E90FF',
+        'graph_memory': '#32CD32',
+        'button_refresh': '#1E90FF',
+        'button_scheduling': '#FF8C00'
     }
     
     CYBERPUNK = {
@@ -52,6 +59,384 @@ class ThemeColors:
         'button_scheduling': '#8A2BE2'
     }
 
+class Process:
+    def __init__(self, pid, name, arrival_time, burst_time, priority=0):
+        self.pid = pid
+        self.name = name
+        self.arrival_time = arrival_time
+        self.burst_time = burst_time
+        self.priority = priority
+        self.remaining_time = burst_time
+        self.completion_time = 0
+        self.turnaround_time = 0
+        self.waiting_time = 0
+        self.response_time = -1
+        self.started = False
+
+class SchedulingResult:
+    def __init__(self):
+        self.processes = []
+        self.gantt_chart = []
+        self.avg_turnaround = 0
+        self.avg_waiting = 0
+        self.throughput = 0
+
+class SchedulingVisualizer(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CPU Scheduling Visualization")
+        self.setMinimumSize(1200, 800)
+        self.processes = []
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Control panel
+        control_panel = QFrame()
+        control_layout = QHBoxLayout(control_panel)
+        
+        self.algorithm_combo = QComboBox()
+        self.algorithm_combo.addItems([
+            "First Come First Serve (FCFS)",
+            "Shortest Job First (SJF)",
+            "Round Robin (RR)",
+            "Priority Scheduling"
+        ])
+        
+        self.quantum_label = QLabel("Time Quantum:")
+        self.quantum_spin = QSpinBox()
+        self.quantum_spin.setRange(1, 100)
+        self.quantum_spin.setValue(4)
+        self.quantum_label.setVisible(False)
+        self.quantum_spin.setVisible(False)
+        
+        self.generate_btn = QPushButton("Generate Processes")
+        self.run_btn = QPushButton("Run Scheduling")
+        self.run_btn.setEnabled(False)
+        
+        control_layout.addWidget(QLabel("Algorithm:"))
+        control_layout.addWidget(self.algorithm_combo)
+        control_layout.addWidget(self.quantum_label)
+        control_layout.addWidget(self.quantum_spin)
+        control_layout.addWidget(self.generate_btn)
+        control_layout.addWidget(self.run_btn)
+        control_layout.addStretch()
+        
+        # Results display
+        self.tabs = QTabWidget()
+        
+        # Process table tab
+        self.table_tab = QWidget()
+        table_layout = QVBoxLayout(self.table_tab)
+        
+        self.process_table = QTableWidget()
+        self.process_table.setColumnCount(8)
+        self.process_table.setHorizontalHeaderLabels([
+            "PID", "Name", "Arrival", "Burst", "Priority", 
+            "Completion", "Turnaround", "Waiting"
+        ])
+        self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # Stats display
+        stats_frame = QFrame()
+        stats_layout = QHBoxLayout(stats_frame)
+        
+        self.avg_turnaround_label = QLabel("Avg Turnaround: -")
+        self.avg_waiting_label = QLabel("Avg Waiting: -")
+        self.throughput_label = QLabel("Throughput: -")
+        
+        stats_layout.addWidget(self.avg_turnaround_label)
+        stats_layout.addWidget(self.avg_waiting_label)
+        stats_layout.addWidget(self.throughput_label)
+        stats_layout.addStretch()
+        
+        table_layout.addWidget(self.process_table)
+        table_layout.addWidget(stats_frame)
+        
+        # Gantt chart tab
+        self.gantt_tab = QWidget()
+        gantt_layout = QVBoxLayout(self.gantt_tab)
+        
+        self.figure = Figure(figsize=(10, 4), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        
+        gantt_layout.addWidget(self.canvas)
+        
+        self.tabs.addTab(self.table_tab, "Process Table")
+        self.tabs.addTab(self.gantt_tab, "Gantt Chart")
+        
+        layout.addWidget(control_panel)
+        layout.addWidget(self.tabs)
+        
+        # Connect signals
+        self.algorithm_combo.currentTextChanged.connect(self.toggle_quantum_visibility)
+        self.generate_btn.clicked.connect(self.generate_processes)
+        self.run_btn.clicked.connect(self.run_scheduling)
+        
+    def toggle_quantum_visibility(self, text):
+        show_quantum = "Round Robin" in text
+        self.quantum_label.setVisible(show_quantum)
+        self.quantum_spin.setVisible(show_quantum)
+        
+    def generate_processes(self):
+        # Get real processes from system
+        system_processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent']):
+            try:
+                if proc.info['cpu_percent'] > 0:
+                    system_processes.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        
+        # Create synthetic processes if we don't have enough real ones
+        if len(system_processes) < 5:
+            self.processes = [
+                Process(101, "System", 0, random.randint(3, 8)),
+                Process(102, "Browser", 1, random.randint(4, 10)),
+                Process(103, "Editor", 2, random.randint(2, 6)),
+                Process(104, "Terminal", 3, random.randint(3, 7)),
+                Process(105, "Media", 4, random.randint(5, 12))
+            ]
+        else:
+            # Use real processes with synthetic burst times
+            self.processes = []
+            for i, proc in enumerate(random.sample(system_processes, min(8, len(system_processes)))):
+                self.processes.append(Process(
+                    proc.info['pid'],
+                    proc.info['name'][:15],
+                    i,
+                    random.randint(2, 10),
+                    random.randint(1, 5)
+                ))
+        
+        self.update_process_table()
+        self.run_btn.setEnabled(True)
+        
+    def update_process_table(self):
+        self.process_table.setRowCount(len(self.processes))
+        for i, process in enumerate(self.processes):
+            self.process_table.setItem(i, 0, QTableWidgetItem(str(process.pid)))
+            self.process_table.setItem(i, 1, QTableWidgetItem(process.name))
+            self.process_table.setItem(i, 2, QTableWidgetItem(str(process.arrival_time)))
+            self.process_table.setItem(i, 3, QTableWidgetItem(str(process.burst_time)))
+            self.process_table.setItem(i, 4, QTableWidgetItem(str(process.priority)))
+            self.process_table.setItem(i, 5, QTableWidgetItem(str(process.completion_time)))
+            self.process_table.setItem(i, 6, QTableWidgetItem(str(process.turnaround_time)))
+            self.process_table.setItem(i, 7, QTableWidgetItem(str(process.waiting_time)))
+        
+    def run_scheduling(self):
+        algorithm = self.algorithm_combo.currentText()
+        
+        if "FCFS" in algorithm:
+            result = self.fcfs_scheduling()
+        elif "SJF" in algorithm:
+            result = self.sjf_scheduling()
+        elif "Round Robin" in algorithm:
+            quantum = self.quantum_spin.value()
+            result = self.round_robin_scheduling(quantum)
+        elif "Priority" in algorithm:
+            result = self.priority_scheduling()
+        else:
+            return
+            
+        self.display_results(result)
+        
+    def fcfs_scheduling(self):
+        result = SchedulingResult()
+        processes = sorted(self.processes, key=lambda x: x.arrival_time)
+        
+        current_time = 0
+        gantt = []
+        
+        for process in processes:
+            if current_time < process.arrival_time:
+                current_time = process.arrival_time
+                
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            gantt.append((process.pid, current_time, process.completion_time))
+            current_time = process.completion_time
+            
+        result.processes = processes
+        result.gantt_chart = gantt
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.throughput = len(processes) / current_time if current_time > 0 else 0
+        
+        return result
+        
+    def sjf_scheduling(self):
+        result = SchedulingResult()
+        processes = sorted(self.processes, key=lambda x: (x.arrival_time, x.burst_time))
+        
+        current_time = 0
+        gantt = []
+        ready_queue = []
+        i = 0
+        n = len(processes)
+        
+        while i < n or ready_queue:
+            while i < n and processes[i].arrival_time <= current_time:
+                ready_queue.append(processes[i])
+                i += 1
+                
+            if not ready_queue:
+                current_time = processes[i].arrival_time
+                continue
+                
+            ready_queue.sort(key=lambda x: x.burst_time)
+            process = ready_queue.pop(0)
+            
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            gantt.append((process.pid, current_time, process.completion_time))
+            current_time = process.completion_time
+            
+        result.processes = processes
+        result.gantt_chart = gantt
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.throughput = len(processes) / current_time if current_time > 0 else 0
+        
+        return result
+        
+    def round_robin_scheduling(self, quantum):
+        result = SchedulingResult()
+        processes = sorted(self.processes, key=lambda x: x.arrival_time)
+        
+        current_time = 0
+        gantt = []
+        ready_queue = deque()
+        remaining_processes = deque(processes.copy())
+        process_map = {p.pid: p for p in processes}
+        
+        while remaining_processes or ready_queue:
+            while remaining_processes and remaining_processes[0].arrival_time <= current_time:
+                ready_queue.append(remaining_processes.popleft())
+                
+            if not ready_queue:
+                current_time = remaining_processes[0].arrival_time
+                continue
+                
+            process = ready_queue.popleft()
+            
+            if process.response_time == -1:
+                process.response_time = current_time - process.arrival_time
+                
+            exec_time = min(quantum, process.remaining_time)
+            gantt.append((process.pid, current_time, current_time + exec_time))
+            
+            process.remaining_time -= exec_time
+            current_time += exec_time
+            
+            while remaining_processes and remaining_processes[0].arrival_time <= current_time:
+                ready_queue.append(remaining_processes.popleft())
+                
+            if process.remaining_time > 0:
+                ready_queue.append(process)
+            else:
+                process.completion_time = current_time
+                process.turnaround_time = process.completion_time - process.arrival_time
+                process.waiting_time = process.turnaround_time - process.burst_time
+                
+        result.processes = processes
+        result.gantt_chart = gantt
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.throughput = len(processes) / current_time if current_time > 0 else 0
+        
+        return result
+        
+    def priority_scheduling(self):
+        result = SchedulingResult()
+        processes = sorted(self.processes, key=lambda x: (x.arrival_time, x.priority))
+        
+        current_time = 0
+        gantt = []
+        ready_queue = []
+        i = 0
+        n = len(processes)
+        
+        while i < n or ready_queue:
+            while i < n and processes[i].arrival_time <= current_time:
+                ready_queue.append(processes[i])
+                i += 1
+                
+            if not ready_queue:
+                current_time = processes[i].arrival_time
+                continue
+                
+            ready_queue.sort(key=lambda x: x.priority)
+            process = ready_queue.pop(0)
+            
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            gantt.append((process.pid, current_time, process.completion_time))
+            current_time = process.completion_time
+            
+        result.processes = processes
+        result.gantt_chart = gantt
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.throughput = len(processes) / current_time if current_time > 0 else 0
+        
+        return result
+        
+    def display_results(self, result):
+        # Update process table
+        self.processes = result.processes
+        self.update_process_table()
+        
+        # Update stats
+        self.avg_turnaround_label.setText(f"Avg Turnaround: {result.avg_turnaround:.2f}")
+        self.avg_waiting_label.setText(f"Avg Waiting: {result.avg_waiting:.2f}")
+        self.throughput_label.setText(f"Throughput: {result.throughput:.2f} processes/unit time")
+        
+        # Draw Gantt chart
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        if not result.gantt_chart:
+            ax.text(0.5, 0.5, 'No Gantt chart data', ha='center', va='center')
+            self.canvas.draw()
+            return
+            
+        # Create color map
+        colors = plt.cm.get_cmap('tab20', len(result.processes))
+        pid_to_color = {p.pid: colors(i) for i, p in enumerate(result.processes)}
+        
+        # Draw Gantt chart
+        max_time = max(end for _, _, end in result.gantt_chart)
+        y_ticks = []
+        y_labels = []
+        
+        for i, (pid, start, end) in enumerate(result.gantt_chart):
+            ax.broken_barh([(start, end - start)], (i - 0.4, 0.8), 
+                          facecolors=pid_to_color[pid])
+            ax.text((start + end) / 2, i, f"P{pid}", 
+                   ha='center', va='center', color='white')
+            y_ticks.append(i)
+            
+        # Format axes
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels([f"P{pid}" for pid, _, _ in result.gantt_chart])
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Processes')
+        ax.set_title('Gantt Chart')
+        ax.grid(True)
+        
+        # Set x-axis limits
+        ax.set_xlim(0, max_time + 1)
+        
+        self.canvas.draw()
+
 class AlertPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,11 +447,9 @@ class AlertPanel(QFrame):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
         
-        # Alert settings
         self.cpu_threshold = 80
         self.memory_threshold = 70
         
-        # Header with minimize button
         header_layout = QHBoxLayout()
         header_label = QLabel("Alerts & Notifications")
         header_label.setStyleSheet("font-weight: bold;")
@@ -76,7 +459,6 @@ class AlertPanel(QFrame):
         header_layout.addWidget(header_label)
         header_layout.addWidget(self.minimize_btn)
         
-        # Alerts list
         self.alerts_list = QListWidget()
         self.alerts_list.setMaximumHeight(150)
         
@@ -126,7 +508,6 @@ class ProcessControlPanel(QFrame):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
         
-        # Theme selector with icon
         theme_layout = QHBoxLayout()
         self.theme_label = QLabel("Theme:")
         self.theme_combo = QComboBox()
@@ -134,11 +515,9 @@ class ProcessControlPanel(QFrame):
         theme_layout.addWidget(self.theme_label)
         theme_layout.addWidget(self.theme_combo)
         
-        # Buttons with icons
         self.refresh_btn = QPushButton("⟳ Refresh")
         self.scheduling_btn = QPushButton("⏳ CPU Scheduling")
         
-        # Set minimum width for buttons
         for btn in [self.refresh_btn, self.scheduling_btn]:
             btn.setMinimumWidth(120)
         
@@ -193,7 +572,6 @@ class ProcessControlPanel(QFrame):
             }}
         """)
         
-        # Style for theme label
         self.theme_label.setStyleSheet(f"""
             QLabel {{
                 color: {colors['text']};
@@ -210,13 +588,12 @@ class SystemMonitor(QMainWindow):
         self.apply_theme(self.current_theme)
         
     def setup_ui(self):
-        # Create main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QGridLayout(main_widget)
         layout.setSpacing(10)
         
-        # Top stats panel (CPU & Memory side by side)
+        # Top stats panel
         top_panel = QFrame()
         top_layout = QHBoxLayout(top_panel)
         top_layout.setContentsMargins(10, 10, 10, 10)
@@ -294,7 +671,6 @@ class SystemMonitor(QMainWindow):
         mem_layout.addWidget(self.mem_progress)
         mem_layout.addWidget(self.mem_plot)
         
-        # Add CPU and Memory frames to top panel
         top_layout.addWidget(cpu_frame, stretch=1)
         top_layout.addWidget(mem_frame, stretch=1)
         
@@ -303,7 +679,6 @@ class SystemMonitor(QMainWindow):
         process_layout = QVBoxLayout(process_frame)
         process_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Process header with controls
         process_header = QHBoxLayout()
         process_label = QLabel("ACTIVE PROCESSES")
         process_label.setStyleSheet("font-size: 16px; font-weight: bold;")
@@ -316,9 +691,9 @@ class SystemMonitor(QMainWindow):
         self.process_table.setHorizontalHeaderLabels([
             "PID", "Name", "CPU %", "Memory %", "Status", "User", "Start Time"
         ])
-        self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.process_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.process_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.process_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.process_table.setSelectionMode(QTableWidget.SingleSelection)
         
         process_layout.addLayout(process_header)
         process_layout.addWidget(self.process_table)
@@ -332,58 +707,22 @@ class SystemMonitor(QMainWindow):
         self.control_panel.scheduling_btn.clicked.connect(self.show_scheduling_dialog)
         self.control_panel.theme_combo.currentTextChanged.connect(self.change_theme)
         
-        # Add all components to main layout
         layout.addWidget(top_panel, 0, 0, 1, 2)
         layout.addWidget(process_frame, 1, 0, 1, 1)
         layout.addWidget(self.alert_panel, 1, 1, 1, 1)
         
-        # Set layout stretch factors
         layout.setColumnStretch(0, 7)
         layout.setColumnStretch(1, 3)
         
-        # Setup update timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(1000)
         
-        # Window settings
         self.setMinimumSize(1200, 800)
         
     def show_scheduling_dialog(self):
-        """Show a dialog with CPU scheduling options"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("CPU Scheduling")
-        layout = QVBoxLayout()
-        
-        # Add scheduling options
-        scheduling_label = QLabel("Select CPU Scheduling Algorithm:")
-        algorithm_combo = QComboBox()
-        algorithm_combo.addItems(["Round Robin", "First-Come-First-Served", "Priority Scheduling", "Shortest Job First"])
-        
-        # Add parameters
-        quantum_label = QLabel("Time Quantum (ms):")
-        quantum_spin = QSpinBox()
-        quantum_spin.setRange(10, 1000)
-        quantum_spin.setValue(100)
-        
-        # Add buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(dialog.accept)
-        button_box.rejected.connect(dialog.reject)
-        
-        # Add widgets to layout
-        layout.addWidget(scheduling_label)
-        layout.addWidget(algorithm_combo)
-        layout.addWidget(quantum_label)
-        layout.addWidget(quantum_spin)
-        layout.addWidget(button_box)
-        
-        dialog.setLayout(layout)
-        
-        if dialog.exec() == QDialog.Accepted:
-            selected_algorithm = algorithm_combo.currentText()
-            quantum = quantum_spin.value()
-            self.alert_panel.add_alert(f"CPU Scheduling set to {selected_algorithm} with quantum {quantum}ms", "warning")
+        dialog = SchedulingVisualizer(self)
+        dialog.exec()
         
     def change_theme(self, theme_name):
         if "Dark Theme" in theme_name:
@@ -395,7 +734,6 @@ class SystemMonitor(QMainWindow):
         self.apply_theme(self.current_theme)
         
     def apply_theme(self, colors):
-        # Main window theme
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {colors['primary_bg']};
@@ -446,22 +784,14 @@ class SystemMonitor(QMainWindow):
             }}
         """)
         
-        # Update plot colors
         self.cpu_plot.setBackground(colors['secondary_bg'])
         self.mem_plot.setBackground(colors['secondary_bg'])
-        
-        # Update bar colors using setOpts
         self.cpu_bars.setOpts(brush=colors['graph_cpu'])
         self.mem_bars.setOpts(brush=colors['graph_memory'])
-        
-        # Update progress bar colors based on usage
         self.update_progress_colors()
-        
-        # Apply theme to panels
         self.alert_panel.apply_theme(colors)
         self.control_panel.apply_theme(colors)
         
-        # Update CPU and Memory labels with larger font
         self.cpu_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
         self.mem_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
         self.cpu_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
@@ -469,7 +799,6 @@ class SystemMonitor(QMainWindow):
         self.mem_label_detail.setStyleSheet(f"font-size: 14px; color: {colors['text']};")
         
     def update_progress_colors(self):
-        # CPU Progress Bar
         cpu_value = self.cpu_progress.value()
         if cpu_value >= 90:
             color = self.current_theme['progress_critical']
@@ -484,7 +813,6 @@ class SystemMonitor(QMainWindow):
             }}
         """)
         
-        # Memory Progress Bar
         mem_value = self.mem_progress.value()
         if mem_value >= 90:
             color = self.current_theme['progress_critical']
@@ -508,10 +836,8 @@ class SystemMonitor(QMainWindow):
         self.cpu_data[-1] = cpu_percent
         self.cpu_bars.setOpts(height=self.cpu_data)
         
-        # Update progress bar colors
         self.update_progress_colors()
         
-        # Check CPU threshold
         if cpu_percent > self.alert_panel.cpu_threshold:
             self.alert_panel.add_alert(f"High CPU usage: {cpu_percent}%", "critical")
         
@@ -528,7 +854,6 @@ class SystemMonitor(QMainWindow):
         self.mem_data[-1] = mem_percent
         self.mem_bars.setOpts(height=self.mem_data)
         
-        # Check Memory threshold
         if mem_percent > self.alert_panel.memory_threshold:
             self.alert_panel.add_alert(f"High Memory usage: {mem_percent}%", "critical")
         
