@@ -26,18 +26,18 @@ class ThemeColors:
     }
     
     LIGHT = {
-        'primary_bg': '#F5F5F5',
-        'secondary_bg': '#E0E0E0',
-        'text': '#212121',
-        'border': '#BDBDBD',
-        'progress_normal': '#008000',
-        'progress_warning': '#FF8C00',
-        'progress_critical': '#D32F2F',
-        'graph_cpu': '#1976D2',
-        'graph_memory': '#FFD700',
-        'button_refresh': '#1976D2',
-        'button_kill': '#D32F2F',
-        'button_settings': '#673AB7'
+        'primary_bg': '#FFFFFF',  # Pure White
+        'secondary_bg': '#F5F5F5',  # Light Gray
+        'text': '#333333',  # Dark Gray
+        'border': '#D3D3D3',  # Light Gray for borders
+        'progress_normal': '#32CD32',  # Lime Green for success
+        'progress_warning': '#FFD700',  # Gold for warning
+        'progress_critical': '#FF4500',  # Orange Red for error
+        'graph_cpu': '#1E90FF',  # Dodger Blue
+        'graph_memory': '#32CD32',  # Lime Green
+        'button_refresh': '#1E90FF',  # Dodger Blue
+        'button_kill': '#FF4500',  # Orange Red
+        'button_settings': '#FF8C00'  # Dark Orange
     }
     
     CYBERPUNK = {
@@ -129,16 +129,24 @@ class ProcessControlPanel(QFrame):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
         
-        # Theme selector
+        # Theme selector with icon
+        theme_layout = QHBoxLayout()
+        self.theme_label = QLabel("Theme:")
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Dark Theme", "Light Theme", "Cyberpunk Theme"])
+        self.theme_combo.addItems(["🌙 Dark Theme", "☀️ Light Theme", "🎮 Cyberpunk Theme"])
+        theme_layout.addWidget(self.theme_label)
+        theme_layout.addWidget(self.theme_combo)
         
-        # Buttons
+        # Buttons with icons
         self.refresh_btn = QPushButton("⟳ Refresh")
         self.kill_btn = QPushButton("⚠ Kill Process")
         self.settings_btn = QPushButton("⚙ Settings")
         
-        layout.addWidget(self.theme_combo)
+        # Set minimum width for buttons
+        for btn in [self.refresh_btn, self.kill_btn, self.settings_btn]:
+            btn.setMinimumWidth(120)
+        
+        layout.addLayout(theme_layout)
         layout.addWidget(self.refresh_btn)
         layout.addWidget(self.kill_btn)
         layout.addWidget(self.settings_btn)
@@ -150,12 +158,17 @@ class ProcessControlPanel(QFrame):
                 background-color: {colors['secondary_bg']};
                 color: {colors['text']};
                 border: 1px solid {colors['border']};
-                padding: 5px 15px;
+                padding: 8px 15px;
                 border-radius: 5px;
-                min-width: 100px;
+                min-width: 120px;
+                font-weight: bold;
             }}
             QPushButton:hover {{
                 background-color: {colors['button_settings']};
+                border-color: {colors['text']};
+            }}
+            QPushButton:pressed {{
+                background-color: {colors['primary_bg']};
             }}
         """
         
@@ -168,9 +181,10 @@ class ProcessControlPanel(QFrame):
                 background-color: {colors['secondary_bg']};
                 color: {colors['text']};
                 border: 1px solid {colors['border']};
-                padding: 5px;
+                padding: 8px;
                 border-radius: 5px;
-                min-width: 150px;
+                min-width: 180px;
+                font-weight: bold;
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -179,6 +193,17 @@ class ProcessControlPanel(QFrame):
                 image: none;
                 border-left: 5px solid {colors['border']};
                 height: 10px;
+            }}
+            QComboBox:hover {{
+                border-color: {colors['text']};
+            }}
+        """)
+        
+        # Style for theme label
+        self.theme_label.setStyleSheet(f"""
+            QLabel {{
+                color: {colors['text']};
+                font-weight: bold;
             }}
         """)
 
@@ -331,9 +356,9 @@ class SystemMonitor(QMainWindow):
         self.setMinimumSize(1200, 800)
         
     def change_theme(self, theme_name):
-        if theme_name == "Dark Theme":
+        if "Dark Theme" in theme_name:
             self.current_theme = ThemeColors.DARK
-        elif theme_name == "Light Theme":
+        elif "Light Theme" in theme_name:
             self.current_theme = ThemeColors.LIGHT
         else:
             self.current_theme = ThemeColors.CYBERPUNK
@@ -362,12 +387,14 @@ class SystemMonitor(QMainWindow):
                 color: {colors['text']};
                 gridline-color: {colors['border']};
                 border: none;
+                border-radius: 5px;
             }}
             QHeaderView::section {{
                 background-color: {colors['secondary_bg']};
                 color: {colors['text']};
                 border: 1px solid {colors['border']};
-                padding: 5px;
+                padding: 8px;
+                font-weight: bold;
             }}
             QProgressBar {{
                 border: 1px solid {colors['border']};
@@ -379,6 +406,13 @@ class SystemMonitor(QMainWindow):
             QProgressBar::chunk {{
                 background-color: {colors['progress_normal']};
                 border-radius: 5px;
+            }}
+            QTableWidget::item {{
+                padding: 5px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {colors['button_settings']};
+                color: {colors['text']};
             }}
         """)
         
@@ -396,6 +430,13 @@ class SystemMonitor(QMainWindow):
         # Apply theme to panels
         self.alert_panel.apply_theme(colors)
         self.control_panel.apply_theme(colors)
+        
+        # Update CPU and Memory labels with larger font
+        self.cpu_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
+        self.mem_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
+        self.cpu_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
+        self.mem_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
+        self.mem_label_detail.setStyleSheet(f"font-size: 14px; color: {colors['text']};")
         
     def update_progress_colors(self):
         # CPU Progress Bar
