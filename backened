@@ -5,6 +5,7 @@ import matplotlib.patches as patches
 from collections import deque
 
 class Process:
+    """Represents a process with scheduling attributes."""
     def __init__(self, pid, name, arrival_time, burst_time):
         self.pid = pid
         self.name = name
@@ -17,10 +18,12 @@ class Process:
         self.end_times = []
 
     def __str__(self):
-        return f"Process {self.pid} ({self.name}): AT={self.arrival_time}, BT={self.burst_time}, WT={self.waiting_time}, TAT={self.turnaround_time}"
+        return (f"Process {self.pid} ({self.name}): "
+                f"AT={self.arrival_time}, BT={self.burst_time}, "
+                f"WT={self.waiting_time}, TAT={self.turnaround_time}")
 
 def get_real_processes(max_processes=10):
-    """Fetch real processes using psutil and assign random burst times."""
+    """Fetch real processes and assign random burst times."""
     processes = []
     for i, proc in enumerate(psutil.process_iter(['pid', 'name'])):
         if i >= max_processes:
@@ -29,22 +32,18 @@ def get_real_processes(max_processes=10):
             processes.append(Process(
                 pid=proc.info['pid'],
                 name=proc.info['name'],
-                arrival_time=i,  # Simulate arrival time
-                burst_time=random.randint(1, 10)  # Assign random burst time
+                arrival_time=i,
+                burst_time=random.randint(1, 10)
             ))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return processes
 
 def plot_gantt_chart(schedule, title):
-    """Plot a Gantt chart for the given schedule."""
+    """Plot Gantt chart with basic styling."""
     fig, ax = plt.subplots(figsize=(12, 6))
-    
     colors = plt.cm.tab20.colors
     color_map = {}
-    
-    y_ticks = []
-    y_labels = []
     
     for i, (pid, name, start, end) in enumerate(schedule):
         if pid not in color_map:
@@ -60,20 +59,18 @@ def plot_gantt_chart(schedule, title):
         ax.add_patch(rect)
         ax.text(start + duration/2, i + 0.4, f"{name}\n({duration})", 
                 ha='center', va='center', color='white')
-        y_ticks.append(i + 0.4)
-        y_labels.append(f"PID: {pid}")
     
     ax.set_xlabel('Time Units')
     ax.set_ylabel('Processes')
     ax.set_title(title)
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels(y_labels)
+    ax.set_yticks([i + 0.4 for i in range(len(schedule))])
+    ax.set_yticklabels([f"PID: {pid}" for pid, _, _, _ in schedule])
     ax.grid(True, axis='x')
     plt.tight_layout()
     plt.show()
 
 def fcfs_scheduling(processes):
-    """First-Come-First-Serve Scheduling."""
+    """First-Come-First-Serve scheduling implementation."""
     processes = sorted(processes.copy(), key=lambda x: x.arrival_time)
     current_time = 0
     gantt_chart = []
@@ -93,7 +90,7 @@ def fcfs_scheduling(processes):
     return processes, gantt_chart
 
 def round_robin_scheduling(processes, time_quantum=2):
-    """Round Robin Scheduling."""
+    """Round Robin scheduling implementation."""
     processes = sorted(processes.copy(), key=lambda x: x.arrival_time)
     queue = deque()
     current_time = 0
@@ -101,7 +98,6 @@ def round_robin_scheduling(processes, time_quantum=2):
     remaining_processes = processes.copy()
     
     while remaining_processes or queue:
-        # Add arriving processes to queue
         while remaining_processes and remaining_processes[0].arrival_time <= current_time:
             queue.append(remaining_processes.pop(0))
         
@@ -126,26 +122,28 @@ def round_robin_scheduling(processes, time_quantum=2):
     return processes, gantt_chart
 
 def main():
-    # Fetch real processes (limited to 10 for clarity)
+    """Main function to run scheduling simulations."""
+    print("Process Scheduling Simulation\n" + "="*30)
+    
     processes = get_real_processes(max_processes=10)
     
-    print("Real Processes (Simulated Burst Time):")
+    print("\nReal Processes (Simulated Burst Time):")
     for p in processes:
         print(p)
     
-    # Run FCFS Scheduling
+    # FCFS Scheduling
     print("\nFCFS Scheduling Results:")
     fcfs_result, fcfs_gantt = fcfs_scheduling(processes)
     for p in fcfs_result:
         print(p)
-    plot_gantt_chart(fcfs_gantt, "FCFS Scheduling (Real Processes)")
+    plot_gantt_chart(fcfs_gantt, "FCFS Scheduling")
     
-    # Run Round Robin Scheduling
-    print("\nRound Robin Scheduling Results (Time Quantum=2):")
+    # Round Robin Scheduling
+    print("\nRound Robin Scheduling Results:")
     rr_result, rr_gantt = round_robin_scheduling(processes)
     for p in rr_result:
         print(p)
-    plot_gantt_chart(rr_gantt, "Round Robin Scheduling (Real Processes)")
+    plot_gantt_chart(rr_gantt, "Round Robin Scheduling")
 
 if __name__ == "__main__":
     main()
