@@ -1,3 +1,6 @@
+import psutil
+import random
+
 # Step 1: Fetch Real Processes
 def get_running_processes():
     """
