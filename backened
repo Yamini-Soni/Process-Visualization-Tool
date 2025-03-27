@@ -1,161 +1,149 @@
 import psutil
 import random
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from collections import deque
 
-# Step 1: Fetch Real Processes
-def get_running_processes():
-    """
-    Fetches the list of real processes running on the system.
-    Returns:
-        list: List of dictionaries containing process details (pid, name, cpu_usage, memory_usage).
-    """
-    processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_info']):
-        try:
-            # Get process details
-            pid = proc.info['pid']
-            name = proc.info['name']
-            cpu_usage = proc.info['cpu_percent']
-            memory_usage = proc.info['memory_info'].rss  # Resident Set Size (memory usage in bytes)
-            processes.append({
-                'pid': pid,
-                'name': name,
-                'cpu_usage': cpu_usage,
-                'memory_usage': memory_usage
-            })
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            # Skip processes that can't be accessed
-            pass
-    return processes
-
-# Step 2: Map Real Processes to Your Scheduling Algorithms
 class Process:
-    """
-    Represents a process with attributes like pid, name, arrival_time, burst_time, etc.
-    """
-    def __init__(self, pid, name, arrival_time, burst_time, cpu_usage, memory_usage):
+    """Represents a process with scheduling attributes."""
+    def __init__(self, pid, name, arrival_time, burst_time):
         self.pid = pid
         self.name = name
         self.arrival_time = arrival_time
         self.burst_time = burst_time
-        self.cpu_usage = cpu_usage
-        self.memory_usage = memory_usage
         self.remaining_time = burst_time
-        self.state = "New"
         self.waiting_time = 0
         self.turnaround_time = 0
+        self.start_times = []
+        self.end_times = []
 
     def __str__(self):
-        return f"Process {self.pid} ({self.name}): State={self.state}, Waiting Time={self.waiting_time}, Turnaround Time={self.turnaround_time}"
+        return (f"Process {self.pid} ({self.name}): "
+                f"AT={self.arrival_time}, BT={self.burst_time}, "
+                f"WT={self.waiting_time}, TAT={self.turnaround_time}")
 
-def create_process_objects(processes):
-    """
-    Converts the list of fetched processes into Process objects.
-    Args:
-        processes (list): List of dictionaries containing process details.
-    Returns:
-        list: List of Process objects.
-    """
-    process_objects = []
-    for i, proc in enumerate(processes):
-        arrival_time = i  # Simulate arrival time
-        burst_time = random.randint(1, 10)  # Assign a random burst time between 1 and 10
-        process = Process(
-            pid=proc['pid'],
-            name=proc['name'],
-            arrival_time=arrival_time,
-            burst_time=burst_time,
-            cpu_usage=proc['cpu_usage'],
-            memory_usage=proc['memory_usage']
+def get_real_processes(max_processes=10):
+    """Fetch real processes and assign random burst times."""
+    processes = []
+    for i, proc in enumerate(psutil.process_iter(['pid', 'name'])):
+        if i >= max_processes:
+            break
+        try:
+            processes.append(Process(
+                pid=proc.info['pid'],
+                name=proc.info['name'],
+                arrival_time=i,
+                burst_time=random.randint(1, 10)
+            ))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return processes
+
+def plot_gantt_chart(schedule, title):
+    """Plot Gantt chart with basic styling."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    colors = plt.cm.tab20.colors
+    color_map = {}
+    
+    for i, (pid, name, start, end) in enumerate(schedule):
+        if pid not in color_map:
+            color_map[pid] = colors[len(color_map) % len(colors)]
+        
+        duration = end - start
+        rect = patches.Rectangle(
+            (start, i), duration, 0.8,
+            facecolor=color_map[pid],
+            edgecolor='black',
+            linewidth=1
         )
-        process_objects.append(process)
-    return process_objects
+        ax.add_patch(rect)
+        ax.text(start + duration/2, i + 0.4, f"{name}\n({duration})", 
+                ha='center', va='center', color='white')
+    
+    ax.set_xlabel('Time Units')
+    ax.set_ylabel('Processes')
+    ax.set_title(title)
+    ax.set_yticks([i + 0.4 for i in range(len(schedule))])
+    ax.set_yticklabels([f"PID: {pid}" for pid, _, _, _ in schedule])
+    ax.grid(True, axis='x')
+    plt.tight_layout()
+    plt.show()
 
-# Step 3: Scheduling Algorithms
-def fcfs(processes):
-    """
-    Implements the First-Come, First-Served scheduling algorithm.
-    Args:
-        processes (list): List of Process objects.
-    Returns:
-        list: List of processes with updated waiting_time and turnaround_time.
-    """
-    processes.sort(key=lambda x: x.arrival_time)  # Sort by arrival time
+def fcfs_scheduling(processes):
+    """First-Come-First-Serve scheduling implementation."""
+    processes = sorted(processes.copy(), key=lambda x: x.arrival_time)
     current_time = 0
+    gantt_chart = []
+    
     for process in processes:
         if current_time < process.arrival_time:
             current_time = process.arrival_time
-        process.waiting_time = current_time - process.arrival_time
-        process.turnaround_time = process.waiting_time + process.burst_time
-        current_time += process.burst_time
-        process.state = "Terminated"  # Process completes execution
-    return processes
+        
+        start_time = current_time
+        end_time = current_time + process.burst_time
+        gantt_chart.append((process.pid, process.name, start_time, end_time))
+        
+        process.waiting_time = start_time - process.arrival_time
+        process.turnaround_time = end_time - process.arrival_time
+        current_time = end_time
+    
+    return processes, gantt_chart
 
-def round_robin(processes, time_quantum):
-    """
-    Implements the Round Robin scheduling algorithm.
-    Args:
-        processes (list): List of Process objects.
-        time_quantum (int): Time slice for each process.
-    Returns:
-        list: List of processes with updated waiting_time and turnaround_time.
-    """
-    queue = []
+def round_robin_scheduling(processes, time_quantum=2):
+    """Round Robin scheduling implementation."""
+    processes = sorted(processes.copy(), key=lambda x: x.arrival_time)
+    queue = deque()
     current_time = 0
-    processes = processes.copy()  # Work on a copy to avoid modifying the original list
-
-    print("\nStarting Round Robin Scheduling...")
-    print(f"Time Quantum: {time_quantum}")
-
-    while processes or queue:
-        # Add processes to the queue that have arrived by the current time
-        while processes and processes[0].arrival_time <= current_time:
-            process = processes.pop(0)
-            queue.append(process)
-            print(f"Time {current_time}: Added Process {process.pid} ({process.name}) to the queue.")
-
+    gantt_chart = []
+    remaining_processes = processes.copy()
+    
+    while remaining_processes or queue:
+        while remaining_processes and remaining_processes[0].arrival_time <= current_time:
+            queue.append(remaining_processes.pop(0))
+        
         if queue:
-            process = queue.pop(0)
-            print(f"Time {current_time}: Executing Process {process.pid} ({process.name}), Remaining Time: {process.remaining_time}")
-
-            if process.remaining_time > time_quantum:
-                # Process executes for the time quantum
-                current_time += time_quantum
-                process.remaining_time -= time_quantum
-                queue.append(process)  # Add back to the queue
-                print(f"Time {current_time}: Process {process.pid} ({process.name}) added back to the queue. Remaining Time: {process.remaining_time}")
+            current_process = queue.popleft()
+            start_time = current_time
+            exec_time = min(time_quantum, current_process.remaining_time)
+            end_time = current_time + exec_time
+            gantt_chart.append((current_process.pid, current_process.name, start_time, end_time))
+            
+            current_process.remaining_time -= exec_time
+            current_time = end_time
+            
+            if current_process.remaining_time > 0:
+                queue.append(current_process)
             else:
-                # Process completes execution
-                current_time += process.remaining_time
-                process.waiting_time = current_time - process.arrival_time - process.burst_time
-                process.turnaround_time = process.waiting_time + process.burst_time
-                process.state = "Terminated"  # Process completes execution
-                print(f"Time {current_time}: Process {process.pid} ({process.name}) completed. Waiting Time: {process.waiting_time}, Turnaround Time: {process.turnaround_time}")
+                current_process.turnaround_time = current_time - current_process.arrival_time
+                current_process.waiting_time = current_process.turnaround_time - current_process.burst_time
         else:
-            # No processes in the queue, increment time
             current_time += 1
-            print(f"Time {current_time}: No processes in the queue. Incrementing time.")
+    
+    return processes, gantt_chart
 
-    print("Round Robin Scheduling completed.")
-    return processes
+def main():
+    """Main function to run scheduling simulations."""
+    print("Process Scheduling Simulation\n" + "="*30)
+    
+    processes = get_real_processes(max_processes=10)
+    
+    print("\nReal Processes (Simulated Burst Time):")
+    for p in processes:
+        print(p)
+    
+    # FCFS Scheduling
+    print("\nFCFS Scheduling Results:")
+    fcfs_result, fcfs_gantt = fcfs_scheduling(processes)
+    for p in fcfs_result:
+        print(p)
+    plot_gantt_chart(fcfs_gantt, "FCFS Scheduling")
+    
+    # Round Robin Scheduling
+    print("\nRound Robin Scheduling Results:")
+    rr_result, rr_gantt = round_robin_scheduling(processes)
+    for p in rr_result:
+        print(p)
+    plot_gantt_chart(rr_gantt, "Round Robin Scheduling")
 
-# Step 4: Main Function to Run Everything
 if __name__ == "__main__":
-    # Fetch real processes
-    print("Fetching real processes...")
-    processes = get_running_processes()
-
-    # Convert to Process objects
-    print("Creating process objects...")
-    process_objects = create_process_objects(processes)
-
-    # Run FCFS
-    print("\nFCFS Results:")
-    fcfs_processes = fcfs(process_objects.copy())
-    for process in fcfs_processes:
-        print(process)
-
-    # Run Round Robin
-    print("\nRound Robin Results:")
-    rr_processes = round_robin(process_objects.copy(), time_quantum=2)
-    for process in rr_processes:
-        print(process)
+    main()

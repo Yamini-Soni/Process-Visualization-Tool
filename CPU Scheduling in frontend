@@ -8,8 +8,9 @@ import pyqtgraph as pg
 import numpy as np
 from datetime import datetime
 from collections import deque
-
-# Matplotlib imports for Gantt chart
+import platform
+import matplotlib
+matplotlib.use('Qt5Agg')  # Set the backend before importing pyplot
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
@@ -85,6 +86,7 @@ class SchedulingVisualizer(QDialog):
         self.setWindowTitle("CPU Scheduling Visualization")
         self.setWindowState(Qt.WindowMaximized)
         self.processes = []
+        self.result = None
         self.setup_ui()
         
     def setup_ui(self):
@@ -137,13 +139,12 @@ class SchedulingVisualizer(QDialog):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(15)
         
-        # Control panel with group box
+        # Control panel
         control_group = QGroupBox("Scheduling Controls")
         control_layout = QHBoxLayout(control_group)
         control_layout.setContentsMargins(15, 25, 15, 15)
         control_layout.setSpacing(20)
         
-        # Algorithm selection
         algo_label = QLabel("Algorithm:")
         algo_label.setStyleSheet("font-weight: bold;")
         
@@ -156,7 +157,6 @@ class SchedulingVisualizer(QDialog):
         ])
         self.algorithm_combo.setMinimumWidth(250)
         
-        # Quantum input (only for Round Robin)
         self.quantum_label = QLabel("Time Quantum (ms):")
         self.quantum_label.setStyleSheet("font-weight: bold;")
         self.quantum_spin = QSpinBox()
@@ -165,7 +165,6 @@ class SchedulingVisualizer(QDialog):
         self.quantum_label.setVisible(False)
         self.quantum_spin.setVisible(False)
         
-        # Run button
         self.run_btn = QPushButton("Run Scheduling")
         self.run_btn.setStyleSheet("""
             QPushButton {
@@ -188,16 +187,7 @@ class SchedulingVisualizer(QDialog):
         control_layout.addStretch()
         control_layout.addWidget(self.run_btn)
         
-        # Gantt chart with group box
-        gantt_group = QGroupBox("Gantt Chart")
-        gantt_layout = QVBoxLayout(gantt_group)
-        gantt_layout.setContentsMargins(5, 15, 5, 5)
-        
-        self.figure = Figure(figsize=(12, 6), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        gantt_layout.addWidget(self.canvas)
-        
-        # Process table with group box
+        # Process table
         table_group = QGroupBox("Process Execution Details")
         table_layout = QVBoxLayout(table_group)
         table_layout.setContentsMargins(5, 15, 5, 5)
@@ -220,7 +210,7 @@ class SchedulingVisualizer(QDialog):
         """)
         table_layout.addWidget(self.process_table)
         
-        # Stats display at bottom
+        # Stats display
         stats_group = QGroupBox("Performance Metrics")
         stats_layout = QHBoxLayout(stats_group)
         stats_layout.setContentsMargins(15, 15, 15, 15)
@@ -235,17 +225,31 @@ class SchedulingVisualizer(QDialog):
         
         stats_layout.addStretch()
         
-        # Main layout organization
+        # Gantt chart button
+        self.gantt_btn = QPushButton("Show Gantt Chart")
+        self.gantt_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #8A2BE2;
+                color: white;
+                font-weight: bold;
+                font-size: 16px;
+                min-width: 150px;
+            }
+            QPushButton:hover {
+                background-color: #7B26C1;
+            }
+        """)
+        self.gantt_btn.setEnabled(False)
+        
         layout.addWidget(control_group)
-        layout.addWidget(gantt_group, stretch=1)  # Gantt chart takes most space
         layout.addWidget(table_group)
         layout.addWidget(stats_group)
+        layout.addWidget(self.gantt_btn, alignment=Qt.AlignCenter)
         
-        # Connect signals
         self.algorithm_combo.currentTextChanged.connect(self.toggle_quantum_visibility)
         self.run_btn.clicked.connect(self.run_scheduling)
+        self.gantt_btn.clicked.connect(self.show_gantt_chart)
         
-        # Generate initial processes
         self.generate_processes()
         
     def toggle_quantum_visibility(self, text):
@@ -254,16 +258,14 @@ class SchedulingVisualizer(QDialog):
         self.quantum_spin.setVisible(show_quantum)
         
     def generate_processes(self):
-        # Get real processes from system
         system_processes = []
         for proc in psutil.process_iter(['pid', 'name', 'cpu_percent']):
             try:
                 if proc.info['cpu_percent'] > 0:
                     system_processes.append(proc)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
         
-        # Create synthetic processes if we don't have enough real ones
         if len(system_processes) < 5:
             self.processes = [
                 Process(101, "System", 0, random.randint(3, 8)),
@@ -273,12 +275,14 @@ class SchedulingVisualizer(QDialog):
                 Process(105, "Media", 4, random.randint(5, 12))
             ]
         else:
-            # Use real processes with synthetic burst times
             self.processes = []
             for i, proc in enumerate(random.sample(system_processes, min(8, len(system_processes)))):
+                name = proc.info['name']
+                if platform.system() == 'Darwin' and isinstance(name, bytes):
+                    name = name.decode('utf-8', 'ignore')
                 self.processes.append(Process(
                     proc.info['pid'],
-                    proc.info['name'][:15],
+                    name[:15],
                     i,
                     random.randint(2, 10),
                     random.randint(1, 5)
@@ -462,59 +466,76 @@ class SchedulingVisualizer(QDialog):
         
         return result
         
-    def display_results(self, result):
-        # Update process table with all calculated metrics
-        self.update_process_table(result.processes)
-        
-        # Update stats at bottom
-        self.avg_turnaround_label.setText(f"Average Turnaround Time: {result.avg_turnaround:.2f}")
-        self.avg_waiting_label.setText(f"Average Waiting Time: {result.avg_waiting:.2f}")
-        self.throughput_label.setText(f"Throughput: {result.throughput:.2f} processes/unit time")
-        
-        # Draw Gantt chart
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        
-        if not result.gantt_chart:
-            ax.text(0.5, 0.5, 'No Gantt chart data', ha='center', va='center')
-            self.canvas.draw()
+    def show_gantt_chart(self):
+        if not self.result:
             return
             
-        # Create color map
-        colors = plt.cm.get_cmap('tab20', len(result.processes))
-        pid_to_color = {p.pid: colors(i) for i, p in enumerate(result.processes)}
+        gantt_dialog = QDialog(self)
+        gantt_dialog.setWindowTitle("Gantt Chart")
+        gantt_dialog.resize(1000, 500)
         
-        # Draw Gantt chart bars
-        max_time = max(end for _, _, end in result.gantt_chart)
+        layout = QVBoxLayout(gantt_dialog)
+        
+        dpi = 72 if platform.system() == 'Darwin' else 100
+        figure = Figure(figsize=(12, 6), dpi=dpi)
+        canvas = FigureCanvas(figure)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(canvas)
+        layout.addWidget(scroll)
+        
+        ax = figure.add_subplot(111)
+        
+        if not self.result.gantt_chart:
+            ax.text(0.5, 0.5, 'No Gantt chart data', ha='center', va='center')
+            canvas.draw()
+            gantt_dialog.exec()
+            return
+            
+        colors = plt.cm.get_cmap('tab20', len(self.result.processes))
+        pid_to_color = {p.pid: colors(i) for i, p in enumerate(self.result.processes)}
+        
+        max_time = max(end for _, _, end in self.result.gantt_chart)
         y_ticks = []
         
-        for i, (pid, start, end) in enumerate(result.gantt_chart):
+        for i, (pid, start, end) in enumerate(self.result.gantt_chart):
             ax.broken_barh([(start, end - start)], (i - 0.4, 0.8), 
                           facecolors=pid_to_color[pid])
             ax.text((start + end) / 2, i, f"P{pid}", 
                    ha='center', va='center', color='white')
             y_ticks.append(i)
             
-        # Format axes
         ax.set_yticks(y_ticks)
-        ax.set_yticklabels([f"P{pid}" for pid, _, _ in result.gantt_chart])
+        ax.set_yticklabels([f"P{pid}" for pid, _, _ in self.result.gantt_chart])
         ax.set_xlabel('Time', fontsize=12)
         ax.set_ylabel('Processes', fontsize=12)
         ax.set_title('Gantt Chart - Process Execution Timeline', fontsize=14, pad=20)
         ax.grid(True)
         
-        # Make Gantt chart fonts larger
         ax.tick_params(axis='both', which='major', labelsize=12)
-        
-        # Set x-axis limits with some padding
         ax.set_xlim(0, max_time * 1.1)
         
-        # Add border around the Gantt chart
         for spine in ax.spines.values():
             spine.set_linewidth(2)
             spine.set_color('#D3D3D3')
         
-        self.canvas.draw()
+        figure.tight_layout()
+        canvas.draw()
+        gantt_dialog.exec()
+
+    def display_results(self, result):
+        self.result = result
+        self.update_process_table(result.processes)
+        
+        self.avg_turnaround_label.setText(f"Average Turnaround Time: {result.avg_turnaround:.2f}")
+        self.avg_waiting_label.setText(f"Average Waiting Time: {result.avg_waiting:.2f}")
+        self.throughput_label.setText(f"Throughput: {result.throughput:.2f} processes/unit time")
+        
+        self.gantt_btn.setEnabled(True)
+        
+        if platform.system() == 'Darwin':
+            self.process_table.resizeColumnsToContents()
 
 class AlertPanel(QFrame):
     def __init__(self, parent=None):
@@ -995,17 +1016,23 @@ class SystemMonitor(QMainWindow):
                 cpu_percent = pinfo['cpu_percent'] if pinfo['cpu_percent'] is not None else 0.0
                 mem_percent = pinfo['memory_percent'] if pinfo['memory_percent'] is not None else 0.0
                 create_time = datetime.fromtimestamp(pinfo['create_time']).strftime('%H:%M:%S')
+                
+                # Handle macOS-specific process name issue
+                process_name = pinfo['name']
+                if platform.system() == 'Darwin' and isinstance(process_name, bytes):
+                    process_name = process_name.decode('utf-8', 'ignore')
+                
                 processes.append([
                     str(pinfo['pid']),
-                    pinfo['name'],
+                    process_name,
                     f"{cpu_percent:.1f}",
                     f"{mem_percent:.1f}",
                     pinfo['status'],
                     pinfo['username'],
                     create_time
                 ])
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
         
         processes.sort(key=lambda x: float(x[2]), reverse=True)
         self.process_table.setRowCount(min(len(processes), 15))
@@ -1018,6 +1045,11 @@ class SystemMonitor(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    
+    # Set style to ensure consistent look across platforms
+    if platform.system() == 'Darwin':
+        app.setStyle('Fusion')  # Fusion style works well on macOS
+        
     window = SystemMonitor()
     window.show()
     sys.exit(app.exec())
