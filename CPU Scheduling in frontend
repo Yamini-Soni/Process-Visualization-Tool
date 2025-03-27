@@ -131,7 +131,7 @@ class SchedulingVisualizer(QDialog):
                 font-size: 14px;
                 font-weight: bold;
                 padding: 5px;
-                background-color: #53c957;
+                background-color: #4CAF50;
             }
         """)
 
@@ -327,20 +327,20 @@ class SchedulingVisualizer(QDialog):
         gantt = []
         
         for process in processes:
-            if current_time < process.arrival_time:
-                current_time = process.arrival_time
+            # Ensure current time doesn't go before arrival time
+            current_time = max(current_time, process.arrival_time)
                 
             process.completion_time = current_time + process.burst_time
-            process.turnaround_time = process.completion_time - process.arrival_time
-            process.waiting_time = process.turnaround_time - process.burst_time
+            process.turnaround_time = max(0, process.completion_time - process.arrival_time)
+            process.waiting_time = max(0, process.turnaround_time - process.burst_time)
             
             gantt.append((process.pid, current_time, process.completion_time))
             current_time = process.completion_time
             
         result.processes = processes
         result.gantt_chart = gantt
-        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
-        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
+        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
@@ -361,23 +361,24 @@ class SchedulingVisualizer(QDialog):
                 i += 1
                 
             if not ready_queue:
-                current_time = processes[i].arrival_time
+                current_time = processes[i].arrival_time if i < n else current_time
                 continue
                 
             ready_queue.sort(key=lambda x: x.burst_time)
             process = ready_queue.pop(0)
             
+            current_time = max(current_time, process.arrival_time)
             process.completion_time = current_time + process.burst_time
-            process.turnaround_time = process.completion_time - process.arrival_time
-            process.waiting_time = process.turnaround_time - process.burst_time
+            process.turnaround_time = max(0, process.completion_time - process.arrival_time)
+            process.waiting_time = max(0, process.turnaround_time - process.burst_time)
             
             gantt.append((process.pid, current_time, process.completion_time))
             current_time = process.completion_time
             
         result.processes = processes
         result.gantt_chart = gantt
-        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
-        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
+        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
@@ -397,13 +398,13 @@ class SchedulingVisualizer(QDialog):
                 ready_queue.append(remaining_processes.popleft())
                 
             if not ready_queue:
-                current_time = remaining_processes[0].arrival_time
+                current_time = remaining_processes[0].arrival_time if remaining_processes else current_time
                 continue
                 
             process = ready_queue.popleft()
             
             if process.response_time == -1:
-                process.response_time = current_time - process.arrival_time
+                process.response_time = max(0, current_time - process.arrival_time)
                 
             exec_time = min(quantum, process.remaining_time)
             gantt.append((process.pid, current_time, current_time + exec_time))
@@ -418,13 +419,13 @@ class SchedulingVisualizer(QDialog):
                 ready_queue.append(process)
             else:
                 process.completion_time = current_time
-                process.turnaround_time = process.completion_time - process.arrival_time
-                process.waiting_time = process.turnaround_time - process.burst_time
+                process.turnaround_time = max(0, process.completion_time - process.arrival_time)
+                process.waiting_time = max(0, process.turnaround_time - process.burst_time)
                 
         result.processes = processes
         result.gantt_chart = gantt
-        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
-        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
+        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
@@ -445,23 +446,24 @@ class SchedulingVisualizer(QDialog):
                 i += 1
                 
             if not ready_queue:
-                current_time = processes[i].arrival_time
+                current_time = processes[i].arrival_time if i < n else current_time
                 continue
                 
             ready_queue.sort(key=lambda x: x.priority)
             process = ready_queue.pop(0)
             
+            current_time = max(current_time, process.arrival_time)
             process.completion_time = current_time + process.burst_time
-            process.turnaround_time = process.completion_time - process.arrival_time
-            process.waiting_time = process.turnaround_time - process.burst_time
+            process.turnaround_time = max(0, process.completion_time - process.arrival_time)
+            process.waiting_time = max(0, process.turnaround_time - process.burst_time)
             
             gantt.append((process.pid, current_time, process.completion_time))
             current_time = process.completion_time
             
         result.processes = processes
         result.gantt_chart = gantt
-        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
-        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
+        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
+        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
