@@ -92,10 +92,10 @@ python main.py
 ## 📷 Screenshots
 
 ### 🔍 Real-Time Monitoring Dashboard:
-*(Add your screenshot here)*
+![alt text](<Screenshot (56).png>)
 
 ### 📈 Scheduling Algorithm Visualization:
-*(Add your screenshot here)*
+![alt text](<Screenshot (65).png>)
 
 ---
 
@@ -135,17 +135,3 @@ This project is licensed under the **MIT License**. See the LICENSE file for det
 
 ---
 
-## 🙏 Acknowledgments
-Special thanks to:
-- The **development team** for their collaborative efforts.
-- Creators of open-source libraries like `PyQt5`, `Matplotlib`, and `Psutil` for making this project possible.
-
----
-
-## 📞 Contact
-
-For queries or feedback, reach out to:
-
-- **Name:** Your Name  
-- **Email:** your-email@example.com  
-- **GitHub:** [Your GitHub Profile](https://github.com/your-username)
