@@ -1,0 +1,945 @@
+import sys
+import psutil
+import random
+from PySide6.QtWidgets import *
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+import pyqtgraph as pg
+import numpy as np
+from datetime import datetime
+from collections import deque
+import platform
+
+# Matplotlib imports for Gantt chart
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+
+class ThemeColors:
+    DARK = {
+        'primary_bg': '#1E1E2E',
+        'secondary_bg': '#282A36',
+        'text': '#EAEAEA',
+        'border': '#4A4A4A',
+        'progress_normal': '#4CAF50',
+        'progress_warning': '#FFA500',
+        'progress_critical': '#FF4C4C',
+        'graph_cpu': '#00BFFF',
+        'graph_memory': '#FFD700',
+        'button_refresh': '#4CAF50',
+        'button_scheduling': '#8A2BE2'
+    }
+    
+    LIGHT = {
+        'primary_bg': '#FFFFFF',
+        'secondary_bg': '#F5F5F5',
+        'text': '#333333',
+        'border': '#D3D3D3',
+        'progress_normal': '#32CD32',
+        'progress_warning': '#FFD700',
+        'progress_critical': '#FF4500',
+        'graph_cpu': '#1E90FF',
+        'graph_memory': '#32CD32',
+        'button_refresh': '#1E90FF',
+        'button_scheduling': '#FF8C00'
+    }
+    
+    CYBERPUNK = {
+        'primary_bg': '#0D1117',
+        'secondary_bg': '#161B22',
+        'text': '#39FF14',
+        'border': '#00FFFF',
+        'progress_normal': '#39FF14',
+        'progress_warning': '#FFBF00',
+        'progress_critical': '#FF3131',
+        'graph_cpu': '#FF007F',
+        'graph_memory': '#00FFFF',
+        'button_refresh': '#00FFFF',
+        'button_scheduling': '#8A2BE2'
+    }
+
+def get_process_name(pinfo):
+    """Helper function to handle process names across platforms"""
+    name = pinfo['name']
+    if platform.system() == 'Darwin' and isinstance(name, bytes):
+        try:
+            return name.decode('utf-8', 'ignore')
+        except:
+            return str(name)
+    return name
+
+class Process:
+    def __init__(self, pid, name, arrival_time, burst_time, priority=0):
+        self.pid = pid
+        self.name = name
+        self.arrival_time = arrival_time
+        self.burst_time = burst_time
+        self.priority = priority
+        self.remaining_time = burst_time
+        self.completion_time = 0
+        self.turnaround_time = 0
+        self.waiting_time = 0
+        self.response_time = -1
+        self.started = False
+
+class SchedulingResult:
+    def __init__(self):
+        self.processes = []
+        self.gantt_chart = []
+        self.avg_turnaround = 0
+        self.avg_waiting = 0
+        self.throughput = 0
+
+class AlertPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
+        
+        self.cpu_threshold = 80
+        self.memory_threshold = 70
+        
+        header_layout = QHBoxLayout()
+        header_label = QLabel("Alerts & Notifications")
+        header_label.setStyleSheet("font-weight: bold; font-size: 16px;")
+        self.minimize_btn = QPushButton("−")
+        self.minimize_btn.setFixedSize(20, 20)
+        
+        header_layout.addWidget(header_label)
+        header_layout.addWidget(self.minimize_btn)
+        
+        self.alerts_list = QListWidget()
+        self.alerts_list.setMaximumHeight(150)
+        self.alerts_list.setStyleSheet("font-size: 14px;")
+        
+        layout.addLayout(header_layout)
+        layout.addWidget(self.alerts_list)
+        
+    def add_alert(self, message, level="warning"):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        item = QListWidgetItem(f"[{timestamp}] {message}")
+        if level == "critical":
+            item.setForeground(QColor("#FF4C4C"))
+        elif level == "warning":
+            item.setForeground(QColor("#FFA500"))
+        self.alerts_list.insertItem(0, item)
+        if self.alerts_list.count() > 100:
+            self.alerts_list.takeItem(self.alerts_list.count() - 1)
+            
+    def apply_theme(self, colors):
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {colors['secondary_bg']};
+                border: 2px solid {colors['border']};
+                color: {colors['text']};
+            }}
+            QLabel {{
+                color: {colors['text']};
+                font-size: 16px;
+            }}
+            QPushButton {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+            }}
+            QListWidget {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                font-size: 14px;
+            }}
+        """)
+
+class ProcessControlPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(10)
+        
+        theme_layout = QHBoxLayout()
+        self.theme_label = QLabel("Theme:")
+        self.theme_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["🌙 Dark Theme", "☀️ Light Theme", "🎮 Cyberpunk Theme"])
+        self.theme_combo.setStyleSheet("font-size: 14px;")
+        
+        theme_layout.addWidget(self.theme_label)
+        theme_layout.addWidget(self.theme_combo)
+        
+        self.refresh_btn = QPushButton("⟳ Refresh")
+        self.refresh_btn.setStyleSheet("font-size: 14px;")
+        
+        self.scheduling_btn = QPushButton("⏳ CPU Scheduling")
+        self.scheduling_btn.setStyleSheet("font-size: 14px;")
+        
+        for btn in [self.refresh_btn, self.scheduling_btn]:
+            btn.setMinimumWidth(120)
+        
+        layout.addLayout(theme_layout)
+        layout.addWidget(self.refresh_btn)
+        layout.addWidget(self.scheduling_btn)
+        layout.addStretch()
+        
+        # Connect scheduling button to main window's show_scheduling_dialog method
+        if self.main_window:
+            self.scheduling_btn.clicked.connect(self.main_window.show_scheduling_dialog)
+        
+    def apply_theme(self, colors):
+        button_style = f"""
+            QPushButton {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                border: 2px solid {colors['border']};
+                padding: 8px 15px;
+                border-radius: 5px;
+                min-width: 120px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {colors['button_scheduling']};
+                border-color: {colors['text']};
+            }}
+            QPushButton:pressed {{
+                background-color: {colors['primary_bg']};
+            }}
+        """
+        
+        self.refresh_btn.setStyleSheet(button_style.replace(colors['button_scheduling'], colors['button_refresh']))
+        self.scheduling_btn.setStyleSheet(button_style)
+        
+        self.theme_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                border: 2px solid {colors['border']};
+                padding: 8px;
+                border-radius: 5px;
+                min-width: 180px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid {colors['border']};
+                height: 10px;
+            }}
+            QComboBox:hover {{
+                border-color: {colors['text']};
+            }}
+        """)
+        
+        self.theme_label.setStyleSheet(f"""
+            QLabel {{
+                color: {colors['text']};
+                font-weight: bold;
+                font-size: 14px;
+            }}
+        """)
+
+class SystemMonitor(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Process Visualization Tool")
+        self.current_theme = ThemeColors.DARK
+        self.setup_ui()
+        self.apply_theme(self.current_theme)
+        
+    def setup_ui(self):
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        layout = QGridLayout(main_widget)
+        layout.setSpacing(10)
+        
+        # Top stats panel
+        top_panel = QFrame()
+        top_panel.setStyleSheet("border: 2px solid #D3D3D3; border-radius: 5px;")
+        top_layout = QHBoxLayout(top_panel)
+        top_layout.setContentsMargins(10, 10, 10, 10)
+        top_layout.setSpacing(20)
+        
+        # CPU Usage Display
+        cpu_frame = QFrame()
+        cpu_layout = QVBoxLayout(cpu_frame)
+        cpu_layout.setSpacing(5)
+        
+        cpu_header = QHBoxLayout()
+        self.cpu_label = QLabel("CPU USAGE")
+        self.cpu_label.setStyleSheet("font-weight: bold; font-size: 16px;")
+        self.cpu_value = QLabel("0%")
+        self.cpu_value.setStyleSheet("font-size: 24px; font-weight: bold;")
+        cpu_header.addWidget(self.cpu_label)
+        cpu_header.addWidget(self.cpu_value)
+        
+        self.cpu_progress = QProgressBar()
+        self.cpu_progress.setRange(0, 100)
+        self.cpu_progress.setStyleSheet("""
+            QProgressBar {
+                height: 20px;
+                border: 1px solid #D3D3D3;
+                border-radius: 5px;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 5px;
+            }
+        """)
+        
+        self.cpu_plot = pg.PlotWidget(background=None)
+        self.cpu_plot.setMaximumHeight(100)
+        self.cpu_plot.setYRange(0, 100)
+        self.cpu_plot.showGrid(True, True, alpha=0.3)
+        self.cpu_data = np.zeros(30)
+        
+        self.cpu_bars = pg.BarGraphItem(
+            x=range(len(self.cpu_data)),
+            height=self.cpu_data,
+            width=0.8,
+            brush=self.current_theme['graph_cpu'],
+            pen=None
+        )
+        self.cpu_plot.addItem(self.cpu_bars)
+        self.cpu_plot.getAxis('bottom').setStyle(showValues=False)
+        
+        cpu_layout.addLayout(cpu_header)
+        cpu_layout.addWidget(self.cpu_progress)
+        cpu_layout.addWidget(self.cpu_plot)
+        
+        # Memory Usage Display
+        mem_frame = QFrame()
+        mem_layout = QVBoxLayout(mem_frame)
+        mem_layout.setSpacing(5)
+        
+        mem_header = QHBoxLayout()
+        self.mem_label = QLabel("MEMORY USAGE")
+        self.mem_label.setStyleSheet("font-weight: bold; font-size: 16px;")
+        self.mem_value = QLabel("0%")
+        self.mem_value.setStyleSheet("font-size: 24px; font-weight: bold;")
+        mem_header.addWidget(self.mem_label)
+        mem_header.addWidget(self.mem_value)
+        
+        self.mem_label_detail = QLabel("Used: 0 GB / Total: 0 GB")
+        self.mem_label_detail.setStyleSheet("font-size: 14px;")
+        
+        self.mem_progress = QProgressBar()
+        self.mem_progress.setRange(0, 100)
+        self.mem_progress.setStyleSheet("""
+            QProgressBar {
+                height: 20px;
+                border: 1px solid #D3D3D3;
+                border-radius: 5px;
+            }
+            QProgressBar::chunk {
+                background-color: #FFD700;
+                border-radius: 5px;
+            }
+        """)
+        
+        self.mem_plot = pg.PlotWidget(background=None)
+        self.mem_plot.setMaximumHeight(100)
+        self.mem_plot.setYRange(0, 100)
+        self.mem_plot.showGrid(True, True, alpha=0.3)
+        self.mem_data = np.zeros(30)
+        
+        self.mem_bars = pg.BarGraphItem(
+            x=range(len(self.mem_data)),
+            height=self.mem_data,
+            width=0.8,
+            brush=self.current_theme['graph_memory'],
+            pen=None
+        )
+        self.mem_plot.addItem(self.mem_bars)
+        self.mem_plot.getAxis('bottom').setStyle(showValues=False)
+        
+        mem_layout.addLayout(mem_header)
+        mem_layout.addWidget(self.mem_label_detail)
+        mem_layout.addWidget(self.mem_progress)
+        mem_layout.addWidget(self.mem_plot)
+        
+        top_layout.addWidget(cpu_frame, stretch=1)
+        top_layout.addWidget(mem_frame, stretch=1)
+        
+        # Process List
+        process_frame = QFrame()
+        process_frame.setStyleSheet("border: 2px solid #D3D3D3; border-radius: 5px;")
+        process_layout = QVBoxLayout(process_frame)
+        process_layout.setContentsMargins(10, 10, 10, 10)
+        
+        process_header = QHBoxLayout()
+        process_label = QLabel("ACTIVE PROCESSES")
+        process_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.control_panel = ProcessControlPanel(self)  # Pass self as parent
+        process_header.addWidget(process_label)
+        process_header.addWidget(self.control_panel)
+        
+        self.process_table = QTableWidget()
+        self.process_table.setColumnCount(7)
+        self.process_table.setHorizontalHeaderLabels([
+            "PID", "Name", "CPU %", "Memory %", "Status", "User", "Start Time"
+        ])
+        self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.process_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.process_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.process_table.setStyleSheet("""
+            QTableWidget {
+                font-size: 14px;
+                border: 1px solid #D3D3D3;
+            }
+            QHeaderView::section {
+                font-size: 14px;
+                padding: 5px;
+            }
+        """)
+        
+        process_layout.addLayout(process_header)
+        process_layout.addWidget(self.process_table)
+        
+        # Right panel for alerts
+        self.alert_panel = AlertPanel()
+        self.alert_panel.setMaximumWidth(300)
+        
+        # Connect signals
+        self.control_panel.refresh_btn.clicked.connect(self.update_stats)
+        self.control_panel.theme_combo.currentTextChanged.connect(self.change_theme)
+        
+        layout.addWidget(top_panel, 0, 0, 1, 2)
+        layout.addWidget(process_frame, 1, 0, 1, 1)
+        layout.addWidget(self.alert_panel, 1, 1, 1, 1)
+        
+        layout.setColumnStretch(0, 7)
+        layout.setColumnStretch(1, 3)
+        
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_stats)
+        self.timer.start(1000)
+        
+        self.setMinimumSize(1200, 800)
+        
+    def show_scheduling_dialog(self):
+        dialog = SchedulingVisualizer(self)
+        dialog.exec()
+        
+    def change_theme(self, theme_name):
+        if "Dark Theme" in theme_name:
+            self.current_theme = ThemeColors.DARK
+        elif "Light Theme" in theme_name:
+            self.current_theme = ThemeColors.LIGHT
+        else:
+            self.current_theme = ThemeColors.CYBERPUNK
+        self.apply_theme(self.current_theme)
+        
+    def apply_theme(self, colors):
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {colors['primary_bg']};
+            }}
+            QWidget {{
+                background-color: {colors['primary_bg']};
+                color: {colors['text']};
+            }}
+            QLabel {{
+                color: {colors['text']};
+            }}
+            QFrame {{
+                background-color: {colors['secondary_bg']};
+                border: 2px solid {colors['border']};
+                border-radius: 10px;
+            }}
+            QTableWidget {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                gridline-color: {colors['border']};
+                border: none;
+                border-radius: 5px;
+            }}
+            QHeaderView::section {{
+                background-color: {colors['secondary_bg']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                padding: 8px;
+                font-weight: bold;
+            }}
+            QProgressBar {{
+                border: 1px solid {colors['border']};
+                border-radius: 5px;
+                text-align: center;
+                background-color: {colors['secondary_bg']};
+                max-height: 15px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {colors['progress_normal']};
+                border-radius: 5px;
+            }}
+            QTableWidget::item {{
+                padding: 5px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {colors['button_scheduling']};
+                color: {colors['text']};
+            }}
+        """)
+        
+        self.cpu_plot.setBackground(colors['secondary_bg'])
+        self.mem_plot.setBackground(colors['secondary_bg'])
+        self.cpu_bars.setOpts(brush=colors['graph_cpu'])
+        self.mem_bars.setOpts(brush=colors['graph_memory'])
+        self.update_progress_colors()
+        self.alert_panel.apply_theme(colors)
+        self.control_panel.apply_theme(colors)
+        
+        self.cpu_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
+        self.mem_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {colors['text']};")
+        self.cpu_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
+        self.mem_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
+        self.mem_label_detail.setStyleSheet(f"font-size: 14px; color: {colors['text']};")
+        
+    def update_progress_colors(self):
+        cpu_value = self.cpu_progress.value()
+        if cpu_value >= 90:
+            color = self.current_theme['progress_critical']
+        elif cpu_value >= 80:
+            color = self.current_theme['progress_warning']
+        else:
+            color = self.current_theme['progress_normal']
+        self.cpu_progress.setStyleSheet(f"""
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 5px;
+            }}
+        """)
+        
+        mem_value = self.mem_progress.value()
+        if mem_value >= 90:
+            color = self.current_theme['progress_critical']
+        elif mem_value >= 80:
+            color = self.current_theme['progress_warning']
+        else:
+            color = self.current_theme['progress_normal']
+        self.mem_progress.setStyleSheet(f"""
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 5px;
+            }}
+        """)
+        
+    def update_stats(self):
+        # Update CPU
+        cpu_percent = psutil.cpu_percent()
+        self.cpu_value.setText(f"{cpu_percent}%")
+        self.cpu_progress.setValue(int(cpu_percent))
+        self.cpu_data = np.roll(self.cpu_data, -1)
+        self.cpu_data[-1] = cpu_percent
+        self.cpu_bars.setOpts(height=self.cpu_data)
+        
+        self.update_progress_colors()
+        
+        if cpu_percent > self.alert_panel.cpu_threshold:
+            self.alert_panel.add_alert(f"High CPU usage: {cpu_percent}%", "critical")
+        
+        # Update Memory
+        mem = psutil.virtual_memory()
+        mem_percent = mem.percent
+        used_gb = mem.used / (1024 ** 3)
+        total_gb = mem.total / (1024 ** 3)
+        
+        self.mem_value.setText(f"{mem_percent}%")
+        self.mem_label_detail.setText(f"Used: {used_gb:.1f} GB / Total: {total_gb:.1f} GB")
+        self.mem_progress.setValue(int(mem_percent))
+        self.mem_data = np.roll(self.mem_data, -1)
+        self.mem_data[-1] = mem_percent
+        self.mem_bars.setOpts(height=self.mem_data)
+        
+        if mem_percent > self.alert_panel.memory_threshold:
+            self.alert_panel.add_alert(f"High Memory usage: {mem_percent}%", "critical")
+        
+        # Update Process List
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status', 'username', 'create_time']):
+            try:
+                pinfo = proc.info
+                cpu_percent = pinfo['cpu_percent'] if pinfo['cpu_percent'] is not None else 0.0
+                mem_percent = pinfo['memory_percent'] if pinfo['memory_percent'] is not None else 0.0
+                create_time = datetime.fromtimestamp(pinfo['create_time']).strftime('%H:%M:%S')
+                
+                process_name = get_process_name(pinfo)
+                
+                processes.append([
+                    str(pinfo['pid']),
+                    process_name,
+                    f"{cpu_percent:.1f}",
+                    f"{mem_percent:.1f}",
+                    pinfo['status'],
+                    pinfo['username'],
+                    create_time
+                ])
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        processes.sort(key=lambda x: float(x[2]), reverse=True)
+        self.process_table.setRowCount(min(len(processes), 15))
+        
+        for i, proc in enumerate(processes[:15]):
+            for j, value in enumerate(proc):
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignCenter)
+                self.process_table.setItem(i, j, item)
+
+class SchedulingVisualizer(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CPU Scheduling Visualization")
+        self.setMinimumSize(1200, 800)  # Increased window size
+        self.setup_ui()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        
+        # Algorithm selection
+        algo_layout = QHBoxLayout()
+        algo_label = QLabel("Algorithm:")
+        self.algo_combo = QComboBox()
+        self.algo_combo.addItems(["FCFS", "SJF", "Priority", "Round Robin"])
+        self.algo_combo.currentTextChanged.connect(self.on_algorithm_changed)
+        
+        algo_layout.addWidget(algo_label)
+        algo_layout.addWidget(self.algo_combo)
+        algo_layout.addStretch()
+        
+        # Time quantum for Round Robin
+        self.quantum_layout = QHBoxLayout()
+        self.quantum_label = QLabel("Time Quantum:")
+        self.quantum_spin = QSpinBox()
+        self.quantum_spin.setRange(1, 10)
+        self.quantum_spin.setValue(2)
+        self.quantum_spin.setEnabled(False)  # Only enabled for Round Robin
+        
+        self.quantum_layout.addWidget(self.quantum_label)
+        self.quantum_layout.addWidget(self.quantum_spin)
+        self.quantum_layout.addStretch()
+        
+        # Process table
+        self.process_table = QTableWidget()
+        self.process_table.setColumnCount(6)
+        self.process_table.setHorizontalHeaderLabels([
+            "PID", "Name", "Burst Time", "Priority", "Arrival Time", "Status"
+        ])
+        self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # Gantt chart with larger size
+        self.gantt_figure = Figure(figsize=(12, 6))  # Increased figure size
+        self.gantt_canvas = FigureCanvas(self.gantt_figure)
+        self.gantt_canvas.setMinimumHeight(300)  # Set minimum height for the canvas
+        
+        # Control buttons
+        button_layout = QHBoxLayout()
+        self.start_btn = QPushButton("Start Simulation")
+        self.start_btn.clicked.connect(self.start_simulation)
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_simulation)
+        
+        button_layout.addWidget(self.start_btn)
+        button_layout.addWidget(self.reset_btn)
+        button_layout.addStretch()
+        
+        # Stats display
+        stats_layout = QHBoxLayout()
+        self.avg_waiting_label = QLabel("Average Waiting Time: 0")
+        self.avg_turnaround_label = QLabel("Average Turnaround Time: 0")
+        self.throughput_label = QLabel("Throughput: 0")
+        
+        stats_layout.addWidget(self.avg_waiting_label)
+        stats_layout.addWidget(self.avg_turnaround_label)
+        stats_layout.addWidget(self.throughput_label)
+        
+        # Add all widgets to main layout
+        layout.addLayout(algo_layout)
+        layout.addLayout(self.quantum_layout)
+        layout.addWidget(self.process_table)
+        layout.addWidget(self.gantt_canvas)
+        layout.addLayout(button_layout)
+        layout.addLayout(stats_layout)
+        
+        # Generate initial processes
+        self.generate_processes()
+        
+    def on_algorithm_changed(self, algorithm):
+        self.quantum_spin.setEnabled(algorithm == "Round Robin")
+        
+    def generate_processes(self):
+        # Get processes from main window
+        processes = []
+        for row in range(self.parent().process_table.rowCount()):
+            pid = int(self.parent().process_table.item(row, 0).text())
+            name = self.parent().process_table.item(row, 1).text()
+            cpu_percent = float(self.parent().process_table.item(row, 2).text())
+            
+            # Use CPU percentage as burst time (scaled)
+            burst_time = int(cpu_percent * 2)
+            if burst_time < 1:
+                burst_time = 1
+                
+            # Generate random priority and arrival time
+            priority = random.randint(1, 10)
+            arrival_time = random.randint(0, 5)
+            
+            processes.append(Process(pid, name, arrival_time, burst_time, priority))
+        
+        # Sort by arrival time
+        processes.sort(key=lambda x: x.arrival_time)
+        
+        # Update table
+        self.process_table.setRowCount(len(processes))
+        for i, proc in enumerate(processes):
+            self.process_table.setItem(i, 0, QTableWidgetItem(str(proc.pid)))
+            self.process_table.setItem(i, 1, QTableWidgetItem(proc.name))
+            self.process_table.setItem(i, 2, QTableWidgetItem(str(proc.burst_time)))
+            self.process_table.setItem(i, 3, QTableWidgetItem(str(proc.priority)))
+            self.process_table.setItem(i, 4, QTableWidgetItem(str(proc.arrival_time)))
+            self.process_table.setItem(i, 5, QTableWidgetItem("Ready"))
+            
+    def start_simulation(self):
+        algorithm = self.algo_combo.currentText()
+        processes = []
+        
+        # Get processes from table
+        for row in range(self.process_table.rowCount()):
+            pid = int(self.process_table.item(row, 0).text())
+            name = self.process_table.item(row, 1).text()
+            burst_time = int(self.process_table.item(row, 2).text())
+            priority = int(self.process_table.item(row, 3).text())
+            arrival_time = int(self.process_table.item(row, 4).text())
+            
+            processes.append(Process(pid, name, arrival_time, burst_time, priority))
+        
+        # Run selected algorithm
+        if algorithm == "FCFS":
+            result = self.fcfs_scheduling(processes)
+        elif algorithm == "SJF":
+            result = self.sjf_scheduling(processes)
+        elif algorithm == "Priority":
+            result = self.priority_scheduling(processes)
+        else:  # Round Robin
+            quantum = self.quantum_spin.value()
+            result = self.round_robin_scheduling(processes, quantum)
+        
+        # Update UI with results
+        self.update_results(result)
+        
+    def fcfs_scheduling(self, processes):
+        result = SchedulingResult()
+        current_time = 0
+        completed = 0
+        
+        while completed < len(processes):
+            # Find next ready process
+            ready_processes = [p for p in processes if p.arrival_time <= current_time and not p.completion_time]
+            if not ready_processes:
+                current_time += 1
+                continue
+                
+            process = ready_processes[0]
+            process.started = True
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            result.gantt_chart.append((process.pid, current_time, process.burst_time))
+            current_time = process.completion_time
+            completed += 1
+            
+        result.processes = processes
+        return result
+        
+    def sjf_scheduling(self, processes):
+        result = SchedulingResult()
+        current_time = 0
+        completed = 0
+        
+        while completed < len(processes):
+            # Find shortest ready job
+            ready_processes = [p for p in processes if p.arrival_time <= current_time and not p.completion_time]
+            if not ready_processes:
+                current_time += 1
+                continue
+                
+            process = min(ready_processes, key=lambda x: x.burst_time)
+            process.started = True
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            result.gantt_chart.append((process.pid, current_time, process.burst_time))
+            current_time = process.completion_time
+            completed += 1
+            
+        result.processes = processes
+        return result
+        
+    def priority_scheduling(self, processes):
+        result = SchedulingResult()
+        current_time = 0
+        completed = 0
+        
+        while completed < len(processes):
+            # Find highest priority ready process
+            ready_processes = [p for p in processes if p.arrival_time <= current_time and not p.completion_time]
+            if not ready_processes:
+                current_time += 1
+                continue
+                
+            process = min(ready_processes, key=lambda x: x.priority)
+            process.started = True
+            process.completion_time = current_time + process.burst_time
+            process.turnaround_time = process.completion_time - process.arrival_time
+            process.waiting_time = process.turnaround_time - process.burst_time
+            
+            result.gantt_chart.append((process.pid, current_time, process.burst_time))
+            current_time = process.completion_time
+            completed += 1
+            
+        result.processes = processes
+        return result
+        
+    def round_robin_scheduling(self, processes, quantum):
+        result = SchedulingResult()
+        current_time = 0
+        ready_queue = []
+        completed = 0
+        
+        # Sort processes by arrival time
+        processes.sort(key=lambda x: x.arrival_time)
+        
+        while completed < len(processes):
+            # Add newly arrived processes to ready queue
+            for process in processes:
+                if process.arrival_time <= current_time and not process.started:
+                    process.started = True
+                    ready_queue.append(process)
+            
+            if not ready_queue:
+                current_time += 1
+                continue
+                
+            process = ready_queue.pop(0)
+            execution_time = min(quantum, process.remaining_time)
+            
+            result.gantt_chart.append((process.pid, current_time, execution_time))
+            current_time += execution_time
+            process.remaining_time -= execution_time
+            
+            if process.remaining_time > 0:
+                ready_queue.append(process)
+            else:
+                process.completion_time = current_time
+                process.turnaround_time = process.completion_time - process.arrival_time
+                process.waiting_time = process.turnaround_time - process.burst_time
+                completed += 1
+        
+        result.processes = processes
+        return result
+        
+    def update_results(self, result):
+        # Update process table
+        for i, process in enumerate(result.processes):
+            self.process_table.setItem(i, 5, QTableWidgetItem("Completed"))
+            
+        # Calculate statistics
+        total_waiting = sum(p.waiting_time for p in result.processes)
+        total_turnaround = sum(p.turnaround_time for p in result.processes)
+        avg_waiting = total_waiting / len(result.processes)
+        avg_turnaround = total_turnaround / len(result.processes)
+        throughput = len(result.processes) / max(p.completion_time for p in result.processes)
+        
+        # Update labels
+        self.avg_waiting_label.setText(f"Average Waiting Time: {avg_waiting:.2f}")
+        self.avg_turnaround_label.setText(f"Average Turnaround Time: {avg_turnaround:.2f}")
+        self.throughput_label.setText(f"Throughput: {throughput:.2f}")
+        
+        # Draw Gantt chart
+        self.draw_gantt_chart(result.gantt_chart)
+        
+    def draw_gantt_chart(self, gantt_chart):
+        self.gantt_figure.clear()
+        ax = self.gantt_figure.add_subplot(111)
+        
+        # Set figure size and background
+        self.gantt_figure.set_size_inches(12, 4)
+        ax.set_facecolor('#f0f0f0')
+        
+        # Calculate total processes and time
+        num_processes = len(set(pid for pid, _, _ in gantt_chart))
+        max_time = max(start + duration for _, start, duration in gantt_chart)
+        
+        # Create y positions for each process
+        y_positions = list(range(num_processes))
+        
+        # Generate distinct colors for processes
+        colors = plt.cm.Set3(np.linspace(0, 1, num_processes))
+        process_colors = {}
+        used_positions = {}
+        
+        # Draw bars
+        for pid, start, duration in gantt_chart:
+            if pid not in process_colors:
+                process_colors[pid] = colors[len(process_colors)]
+                used_positions[pid] = len(process_colors) - 1
+                
+            y_pos = used_positions[pid]
+            ax.barh(y_pos, duration, left=start, color=process_colors[pid], 
+                   edgecolor='black', height=0.3)
+            
+            # Add process label inside the bar
+            ax.text(start + duration/2, y_pos, f'P{pid}',
+                   ha='center', va='center',
+                   color='black',
+                   fontweight='bold')
+        
+        # Customize chart appearance
+        ax.set_ylim(-0.5, num_processes - 0.5)
+        ax.set_xlim(0, max_time + 1)
+        ax.set_yticks(range(num_processes))
+        ax.set_yticklabels([f'Process {i+1}' for i in range(num_processes)])
+        
+        # Add grid and time markers
+        ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+        ax.set_xticks(range(0, max_time + 1))
+        ax.set_xlabel('Time')
+        
+        # Remove top and right spines
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        self.gantt_canvas.draw()
+        
+    def reset_simulation(self):
+        self.generate_processes()
+        self.gantt_figure.clear()
+        self.gantt_canvas.draw()
+        self.avg_waiting_label.setText("Average Waiting Time: 0")
+        self.avg_turnaround_label.setText("Average Turnaround Time: 0")
+        self.throughput_label.setText("Throughput: 0")
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    
+    # Set style to ensure consistent look across platforms
+    if platform.system() == 'Darwin':
+        app.setStyle('Fusion')  # Fusion style works well on macOS
+        
+    window = SystemMonitor()
+    window.show()
+    sys.exit(app.exec()) 
