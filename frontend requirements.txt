@@ -1,4 +1,5 @@
-PySide6>=6.6.1
-psutil>=5.9.8
+psutil>=5.9.0
+PySide6>=6.5.0
 pyqtgraph>=0.13.3
-numpy>=1.26.4
+numpy>=1.24.0
+matplotlib>=3.7.0
