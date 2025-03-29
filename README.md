@@ -168,11 +168,7 @@ python main.py
 ---
 ## 🎥Video Demonstration
 
-<div align="center">
-  <a href="https://youtu.be/SnHwQHs5gQI">
-    <img src="https://img.youtube.com/vi/SnHwQHs5gQI/0.jpg" alt="Demo Video" width="50%">
-  </a>
-</div>
+<video controls src="Screen Recording 2025-03-29 181344.mp4" title="Title"></video>
 
 ---
 
