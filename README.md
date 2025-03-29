@@ -8,6 +8,14 @@ Tool for visualizing process scheduling.
 The **Process Visualization Tool** is an interactive application designed to monitor system resources and simulate CPU scheduling algorithms in real-time. This project provides a user-friendly interface to help students, educators, and professionals understand complex operating system concepts, including process lifecycle management and CPU scheduling.
 
 ---
+## 📖 Table of Contents
+- [Key Features]
+- [macOS Optimizations](#-macos-optimizations)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Technical Details](#-technical-details)
+- [Development](#-development)
+- [License]
 
 ## 🌟 Key Features
 
@@ -230,19 +238,27 @@ We welcome contributions! To contribute:
 5. Open a pull request.
 
 ---
-## 🍎 macOS Issues
+## 🛠️ Troubleshooting
 
-### Permission Errors
-- **Full Disk Access**: Grant Terminal "Full Disk Access" in System Preferences → Security & Privacy
-- **Camera/Microphone**: Add Python to the allowed apps list
+### Windows Issues
+- **Missing DLLs**: Install [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+- **DPI Scaling**: Add manifest file for proper high-DPI display scaling
+- **Admin Privileges**: Right-click → "Run as administrator" if getting access errors
 
-### Apple Silicon (M1/M2) Issues
-- **Rosetta 2**: Run with `arch -x86_64 python3 main.py` for Intel compatibility
-- **Native ARM**: Use `pip install --prefer-binary` for ARM-optimized wheels
+### macOS Issues
+- **Permission Errors**: Grant Terminal "Full Disk Access" in System Preferences → Security & Privacy
+- **Apple Silicon**: Use `arch -x86_64 python3 main.py` for Rosetta 2 compatibility
+- **Dark Mode**: Ensure `NSRequiresAquaSystemAppearance` is not set in Info.plist
 
-### UI Rendering
-- **Dark Mode Sync**: Enable system appearance tracking in `Info.plist`
-- **Window Docking**: Disable "Displays have separate Spaces" in Mission Control settings
+### Linux Issues
+- **Missing Packages**: Install `python3-tk` for GUI components
+- **Wayland Support**: Run with `GDK_BACKEND=x11` if experiencing graphical glitches
+- **Systemd Integration**: Use `--user` flag for non-root process monitoring
+
+### Cross-Platform Issues
+- **Virtual Environment**: Always activate with `source venv/bin/activate` (Linux/macOS) or `.\venv\Scripts\activate` (Windows)
+- **Dependencies**: Use `pip install --prefer-binary` to avoid compilation issues
+- **Firewall**: Add Python to allowed apps if connection-related errors occur
 ---
 ## 📄 License
 This project is licensed under the **MIT License**. See the LICENSE file for details.
