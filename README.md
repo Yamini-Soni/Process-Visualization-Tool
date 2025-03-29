@@ -90,6 +90,8 @@ python main.py
 ---
 
 ## 📷 Screenshots
+### System Architecture:
+![alt text](<diag.png>)
 
 ### 🔍 Real-Time Monitoring Dashboard:
 ![alt text](<Screenshot (56).png>)
