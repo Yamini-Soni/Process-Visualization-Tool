@@ -32,16 +32,20 @@ The **Process Visualization Tool** is an interactive application designed to mon
 - Notifications for **resource overuse thresholds**.
 
 ### 🧩 Architecture: 
-core/
-├── windows/        # Windows-specific implementations
-│   ├── wmi_provider.py
-│   └── dpi_manager.py
-├── macos/          # macOS-specific implementations
-│   ├── process_scanner.py
-│   └── theme_watcher.py
-└── common/         # Cross-platform components
-    ├── schedulers/
-    └── models.py
+- core/
+  - windows/          # Windows-specific
+    - wmi_provider.py
+    - dpi_manager.py
+  - macos/            # macOS-specific
+    - process_scanner.py
+    - theme_watcher.py
+  - common/           # Cross-platform
+    - schedulers/
+      - fcfs.py
+      - sjf.py
+      - round_robin.py
+      - priority.py
+    - models.py
 
 ---
 ## 📚 Algorithm Details
