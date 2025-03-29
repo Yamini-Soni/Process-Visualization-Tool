@@ -230,7 +230,22 @@ We welcome contributions! To contribute:
 5. Open a pull request.
 
 ---
+🛠️ Troubleshooting
+Windows Issues
+Missing DLLs: Install Visual C++ Redistributable
 
+DPI Scaling: Add manifest file for proper scaling
+
+macOS Issues
+Apple Silicon: Use arch -x86_64 for Rosetta 2 compatibility
+
+Permission Errors: Grant Terminal "Full Disk Access"
+
+Cross-Platform
+Virtual Environment: Always activate before running
+
+Dependencies: Use --prefer-binary flag on macOS
+---
 ## 📄 License
 This project is licensed under the **MIT License**. See the LICENSE file for details.
 
