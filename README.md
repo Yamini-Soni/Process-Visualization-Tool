@@ -4,8 +4,6 @@
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
-[![CI/CD](https://github.com/your-repo/process-visualization-tool/actions/workflows/build.yml/badge.svg)](https://github.com/your-repo/process-visualization-tool/actions)
-
 
 ## 📖 Table of Contents
 - [Project Description](#-project-description)
