@@ -230,21 +230,19 @@ We welcome contributions! To contribute:
 5. Open a pull request.
 
 ---
-🛠️ Troubleshooting
-Windows Issues
-Missing DLLs: Install Visual C++ Redistributable
+## 🍎 macOS Issues
 
-DPI Scaling: Add manifest file for proper scaling
+### Permission Errors
+- **Full Disk Access**: Grant Terminal "Full Disk Access" in System Preferences → Security & Privacy
+- **Camera/Microphone**: Add Python to the allowed apps list
 
-macOS Issues
-Apple Silicon: Use arch -x86_64 for Rosetta 2 compatibility
+### Apple Silicon (M1/M2) Issues
+- **Rosetta 2**: Run with `arch -x86_64 python3 main.py` for Intel compatibility
+- **Native ARM**: Use `pip install --prefer-binary` for ARM-optimized wheels
 
-Permission Errors: Grant Terminal "Full Disk Access"
-
-Cross-Platform
-Virtual Environment: Always activate before running
-
-Dependencies: Use --prefer-binary flag on macOS
+### UI Rendering
+- **Dark Mode Sync**: Enable system appearance tracking in `Info.plist`
+- **Window Docking**: Disable "Displays have separate Spaces" in Mission Control settings
 ---
 ## 📄 License
 This project is licensed under the **MIT License**. See the LICENSE file for details.
