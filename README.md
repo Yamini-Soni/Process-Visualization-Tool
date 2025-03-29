@@ -1,62 +1,75 @@
-
-
-
 # 🚀 Process Visualization Tool
 
-## 📖 Project Description
-Tool for visualizing process scheduling.
-The **Process Visualization Tool** is an interactive application designed to monitor system resources and simulate CPU scheduling algorithms in real-time. This project provides a user-friendly interface to help students, educators, and professionals understand complex operating system concepts, including process lifecycle management and CPU scheduling.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![CI/CD](https://github.com/your-repo/process-visualization-tool/actions/workflows/build.yml/badge.svg)](https://github.com/your-repo/process-visualization-tool/actions)
 
----
+
 ## 📖 Table of Contents
-- [Key Features]
-- [macOS Optimizations](#-macos-optimizations)
+- [Project Description](#-project-description)
+- [Key Features](#-key-features)
+- [Algorithm Details](#-algorithm-details) 
 - [Installation](#-installation)
 - [Usage](#-usage)
-- [Technical Details](#-technical-details)
-- [Development](#-development)
-- [License]
+- [Technologies](#-technologies-used)
+- [Demonstration](#-demonstration)
+- [Contributing](#-contributing)
+- [Troubleshooting](#-troubleshooting)
+- [License](#-license)
+
+
+## 📖 Project Description
+The **Process Visualization Tool** is an interactive application that:
+- Monitors system resources in real-time
+- Simulates CPU scheduling algorithms
+- Provides educational visualization of OS concepts
+- Supports Windows, macOS, and Linux platforms
+
 
 ## 🌟 Key Features
+### ⚡ Core Functionality
+| Feature | Technical Implementation |
+|---------|--------------------------|
+| **Real-Time Monitoring** | 1-second refresh via `psutil` |
+| **4 Scheduling Algorithms** | FCFS, SJF, Round Robin, Priority |
+| **Cross-Platform** | Native OS implementations |
+| **Educational Visualizations** | Gantt charts with matplotlib |
 
-### ⚡ CPU Scheduling Algorithms:
-- **First-Come-First-Serve (FCFS)**
-- **Shortest Job First (SJF)**
-- **Round Robin (RR)**
-- **Priority Scheduling**
-
-### 📊 Real-Time Monitoring:
-- Visualizes **CPU and memory usage**.
-- Displays **active and pending processes**.
+### 📊 Supported Platforms
+| OS | Version | Status |
+|----|---------|--------|
+| Windows | 10/11 | ✅ Verified |
+| macOS | 12+ (Intel/Apple Silicon) | ✅ Verified |
+| Linux | X11/Wayland | ✅ Experimental |
 
 ### 💻 User Interface:
 - Interactive and intuitive **dashboard**.
 - Light and dark themes for improved usability.
-
-### 🖥️ Cross-Platform Support:
-- Compatible with **Windows** and **macOS** systems.
+- Custom alert thresholds for resources
+- Tooltips and educational annotations
 
 ### 🔔 Custom Alerts:
 - Notifications for **resource overuse thresholds**.
 
-### 🧩 Architecture: 
-- core/
-  - windows/          # Windows-specific
-    - wmi_provider.py
-    - dpi_manager.py
-  - macos/            # macOS-specific
-    - process_scanner.py
-    - theme_watcher.py
-  - common/           # Cross-platform
-    - schedulers/
-      - fcfs.py
-      - sjf.py
-      - round_robin.py
-      - priority.py
-    - models.py
+### 📊 Supported Algorithms
+1. **FCFS** (First-Come-First-Serve)
+2. **SJF** (Shortest Job First)
+3. **Round Robin** (Configurable quantum)
+4. **Priority Scheduling**
 
----
 ## 📚 Algorithm Details
+
+### Comparative Analysis
+
+| Algorithm          | Type       | Decision Mode | Preemptive? | Starvation? | Avg. Wait Time | Key Use Case                     |
+|--------------------|------------|---------------|-------------|-------------|----------------|----------------------------------|
+| **FCFS**           | Non-preemptive | Arrival Time   | ❌ No       | ❌ No       | High           | Batch systems                    |
+| **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
+| **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
+| **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
+
 
 ### ⏳ FCFS (First-Come-First-Serve):
 - **Type**: Non-preemptive scheduling  
@@ -102,14 +115,6 @@ The **Process Visualization Tool** is an interactive application designed to mon
   - Priority color-coding
   - Starvation warnings
 ---
-## 📊 CPU Scheduling Algorithms Comparison
-
-| Algorithm          | Type       | Decision Mode | Preemptive? | Starvation? | Avg. Wait Time | Key Use Case                     |
-|--------------------|------------|---------------|-------------|-------------|----------------|----------------------------------|
-| **FCFS**           | Non-preemptive | Arrival Time   | ❌ No       | ❌ No       | High           | Batch systems                    |
-| **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
-| **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
-| **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
 
 ### Key Characteristics:
 1. **FCFS** (First-Come-First-Serve):
@@ -138,7 +143,7 @@ The **Process Visualization Tool** is an interactive application designed to mon
 ## 🛠️ Technologies Used
 
 ### **Programming Language:**
-- Python
+- Python Version 3.8+
 
 ### **Libraries and Frameworks:**
 - `PyQt5`
@@ -153,24 +158,27 @@ The **Process Visualization Tool** is an interactive application designed to mon
 - GitHub for version control
 
 ---
+## 🛠️ Installation
 
-## 📦 How to Run the Project
-
-### 1️⃣ Clone the Repository:
+### All Platforms
 ```bash
-git clone https://github.com/your-username/process-visualization-tool.git
-```
+# 1. Clone the repository
+git clone https://github.com/your-repo/process-visualization-tool.git
+cd process-visualization-tool
 
-### 2️⃣ Open in VSCode:
-- Open the project folder in **Visual Studio Code**.
+# 2. Create virtual environment
+python -m venv venv
 
-### 3️⃣ Install Dependencies:
+# 3. Activate environment
+source venv/bin/activate  # Linux/macOS
+.\venv\Scripts\activate   # Windows
+
+# 4. Install dependencies
+pip install --upgrade pip
 Ensure Python and all required libraries are installed on your system. Run:
 ```bash
 pip install -r requirements.txt
-```
-
-### 4️⃣ Run the Application:
+# 5. Run the Application:
 Execute the main script:
 ```bash
 python main.py
@@ -197,7 +205,6 @@ python main.py
   </a>
 </div>
 
-
 ---
 
 ## 📷 Screenshots
@@ -221,10 +228,53 @@ python main.py
 - Optimize resource usage for handling large datasets.
 
 ---
+## 🖥️ Usage
 
-## 🤝 Contributing
+### ⌨️ Keyboard Shortcuts
+| Shortcut          | Action                | Platform Support       |
+|-------------------|-----------------------|------------------------|
+| <kbd>Ctrl</kbd> + <kbd>R</kbd> | Refresh Process List  | All Platforms          |
+| <kbd>Ctrl</kbd> + <kbd>D</kbd> | Toggle Dark Mode      | Windows/Linux          |
+| <kbd>Cmd</kbd> + <kbd>D</kbd>  | Toggle Dark Mode      | macOS                  |
+| <kbd>F1</kbd>     | Show Help Panel       | All Platforms          |
 
-We welcome contributions! To contribute:
+### 🖱️ UI Controls
+| Element           | Functionality                          |
+|-------------------|----------------------------------------|
+| **Algorithm Dropdown** | Select scheduling simulation mode      |
+| **Priority Sliders**   | Adjust process priority levels (1-10)  |
+| **Theme Toggle**  | Switch light/dark/cyberpunk themes     |
+
+### 🎛️ CLI Options
+```bash
+# Basic usage
+python main.py 
+
+# Advanced options
+python main.py \
+  --theme dark \          # dark/light/cyberpunk
+  --refresh 2000 \       # Update interval (ms)
+  --quantum 4            # RR time quantum (ms)
+```
+
+---
+## 🤝 Contributing [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+### 📌 Development Workflow
+
+1. **Branch Naming Convention**  
+   ```bash
+   # Feature development
+   git checkout -b feat/mlq-scheduler
+   
+   # Bug fixes
+   git checkout -b fix/windows-dpi-scaling
+   
+   # Documentation
+   git checkout -b docs/algorithm-examples
+
+We welcome contributions!
+To contribute:
 
 1. Fork the repository.
 2. Create a new branch:
@@ -268,4 +318,3 @@ We welcome contributions! To contribute:
 This project is licensed under the **MIT License**. See the LICENSE file for details.
 
 ---
-
