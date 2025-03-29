@@ -86,14 +86,6 @@ The **Process Visualization Tool** is an interactive application designed to mon
 | **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
 | **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
 | **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
-## 📊 CPU Scheduling Algorithms Comparison
-
-| Algorithm          | Type       | Decision Mode | Preemptive? | Starvation? | Avg. Wait Time | Key Use Case                     |
-|--------------------|------------|---------------|-------------|-------------|----------------|----------------------------------|
-| **FCFS**           | Non-preemptive | Arrival Time   | ❌ No       | ❌ No       | High           | Batch systems                    |
-| **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
-| **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
-| **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
 
 ### Key Characteristics:
 1. **FCFS** (First-Come-First-Serve):
@@ -112,11 +104,6 @@ The **Process Visualization Tool** is an interactive application designed to mon
    - Can be preemptive or non-preemptive
    - Requires aging to prevent starvation
 
-### 📝 When to Use:
-- **FCFS**: When simplicity > performance
-- **SJF/SRTF**: When burst times are predictable
-- **Round Robin**: Fairness required (OS time-sharing)
-- **Priority**: Urgent tasks need precedence
 ### 📝 When to Use:
 - **FCFS**: When simplicity > performance
 - **SJF/SRTF**: When burst times are predictable
