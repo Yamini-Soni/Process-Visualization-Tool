@@ -32,6 +32,97 @@ The **Process Visualization Tool** is an interactive application designed to mon
 - Notifications for **resource overuse thresholds**.
 
 ---
+## 📚 Algorithm Details
+
+### ⏳ FCFS (First-Come-First-Serve):
+- **Type**: Non-preemptive scheduling  
+- **Mechanism**: Strict FIFO queue processing  
+- **Key Traits**:
+  - Simple implementation
+  - Demonstrates convoy effect
+  - No starvation
+- **Visualization**: Sequential process blocks
+
+### 🔍 SJF (Shortest Job First):
+- **Variants**:
+  - Non-preemptive (SJF)
+  - Preemptive (SRTF - Shortest Remaining Time First)
+- **Mechanism**: Priority queue sorted by burst time  
+- **Key Traits**:
+  - Optimal for minimum wait time
+  - Shows starvation potential
+  - Requires burst time prediction
+- **Visualization**: Preemption alerts, burst time tooltips
+
+### 🔄 Round Robin:
+- **Core**: Time-slicing with quantum  
+- **Mechanism**: Circular queue with preemption  
+- **Key Traits**:
+  - Configurable time quantum
+  - Fair CPU allocation
+  - High context switches
+- **Visualization**: 
+  - Quantum boundaries marked
+  - Context switch counter
+
+### ⚖️ Priority Scheduling:
+- **Variants**:
+  - Static vs dynamic priorities
+  - Preemptive/non-preemptive
+- **Mechanism**: Priority queue execution  
+- **Key Traits**:
+  - Critical for real-time systems
+  - Shows priority inversion
+  - Requires aging mechanism
+- **Visualization**:
+  - Priority color-coding
+  - Starvation warnings
+---
+## 📊 CPU Scheduling Algorithms Comparison
+
+| Algorithm          | Type       | Decision Mode | Preemptive? | Starvation? | Avg. Wait Time | Key Use Case                     |
+|--------------------|------------|---------------|-------------|-------------|----------------|----------------------------------|
+| **FCFS**           | Non-preemptive | Arrival Time   | ❌ No       | ❌ No       | High           | Batch systems                    |
+| **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
+| **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
+| **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
+## 📊 CPU Scheduling Algorithms Comparison
+
+| Algorithm          | Type       | Decision Mode | Preemptive? | Starvation? | Avg. Wait Time | Key Use Case                     |
+|--------------------|------------|---------------|-------------|-------------|----------------|----------------------------------|
+| **FCFS**           | Non-preemptive | Arrival Time   | ❌ No       | ❌ No       | High           | Batch systems                    |
+| **SJF**            | Both       | Burst Time     | ✅ (SRTF)   | ✅ Possible | Lowest         | Interactive systems              |
+| **Round Robin**    | Preemptive | Time Quantum   | ✅ Yes      | ❌ No       | Medium         | Time-sharing systems             |
+| **Priority**       | Both       | Priority       | Optional    | ✅ Possible | Varies         | Real-time systems                |
+
+### Key Characteristics:
+1. **FCFS** (First-Come-First-Serve):
+   - Simple but suffers from convoy effect
+   - Example: `P1(24ms) → P2(3ms) → P3(3ms)` has avg wait time=17ms
+
+2. **SJF** (Shortest Job First):
+   - Optimal for minimum wait time but needs future knowledge
+   - Preemptive version = SRTF (Shortest Remaining Time First)
+
+3. **Round Robin**:
+   - Each process gets CPU for fixed time quantum (e.g., 4ms)
+   - Performance depends heavily on quantum size
+
+4. **Priority**:
+   - Can be preemptive or non-preemptive
+   - Requires aging to prevent starvation
+
+### 📝 When to Use:
+- **FCFS**: When simplicity > performance
+- **SJF/SRTF**: When burst times are predictable
+- **Round Robin**: Fairness required (OS time-sharing)
+- **Priority**: Urgent tasks need precedence
+### 📝 When to Use:
+- **FCFS**: When simplicity > performance
+- **SJF/SRTF**: When burst times are predictable
+- **Round Robin**: Fairness required (OS time-sharing)
+- **Priority**: Urgent tasks need precedence
+---
 
 ## 🛠️ Technologies Used
 
@@ -86,6 +177,15 @@ python main.py
 3. Explore additional features like:
    - Light/dark themes.
    - Alerts for **resource overuse**.
+
+---
+## 🎥Video Demonstration
+
+<div align="center">
+  <a href="https://youtu.be/SnHwQHs5gQI">
+    <img src="https://img.youtube.com/vi/SnHwQHs5gQI/0.jpg" alt="Demo Video" width="50%">
+  </a>
+</div>
 
 ---
 
