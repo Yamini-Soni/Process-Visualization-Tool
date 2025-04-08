@@ -14,6 +14,7 @@ matplotlib.use('Qt5Agg')  # Set the backend before importing pyplot
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import os
 
 class ThemeColors:
     DARK = {
@@ -106,7 +107,7 @@ class SchedulingVisualizer(QDialog):
             QLabel {
                 font-size: 14px;
             }
-            QComboBox, QSpinBox {
+            QComboBox, QSpinBox, QCheckBox {
                 font-size: 14px;
                 padding: 5px;
                 min-height: 30px;
@@ -157,6 +158,10 @@ class SchedulingVisualizer(QDialog):
         ])
         self.algorithm_combo.setMinimumWidth(250)
         
+        self.preemptive_check = QCheckBox("Preemptive")
+        self.preemptive_check.setStyleSheet("font-weight: bold;")
+        self.preemptive_check.setVisible(False)
+        
         self.quantum_label = QLabel("Time Quantum (ms):")
         self.quantum_label.setStyleSheet("font-weight: bold;")
         self.quantum_spin = QSpinBox()
@@ -182,6 +187,7 @@ class SchedulingVisualizer(QDialog):
         
         control_layout.addWidget(algo_label)
         control_layout.addWidget(self.algorithm_combo)
+        control_layout.addWidget(self.preemptive_check)
         control_layout.addWidget(self.quantum_label)
         control_layout.addWidget(self.quantum_spin)
         control_layout.addStretch()
@@ -246,16 +252,18 @@ class SchedulingVisualizer(QDialog):
         layout.addWidget(stats_group)
         layout.addWidget(self.gantt_btn, alignment=Qt.AlignCenter)
         
-        self.algorithm_combo.currentTextChanged.connect(self.toggle_quantum_visibility)
+        self.algorithm_combo.currentTextChanged.connect(self.toggle_controls_visibility)
         self.run_btn.clicked.connect(self.run_scheduling)
         self.gantt_btn.clicked.connect(self.show_gantt_chart)
         
         self.generate_processes()
         
-    def toggle_quantum_visibility(self, text):
+    def toggle_controls_visibility(self, text):
         show_quantum = "Round Robin" in text
+        show_preemptive = "SJF" in text or "Priority" in text
         self.quantum_label.setVisible(show_quantum)
         self.quantum_spin.setVisible(show_quantum)
+        self.preemptive_check.setVisible(show_preemptive)
         
     def generate_processes(self):
         system_processes = []
@@ -264,7 +272,7 @@ class SchedulingVisualizer(QDialog):
                 if proc.info['cpu_percent'] > 0:
                     system_processes.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
+                continue
         
         if len(system_processes) < 5:
             self.processes = [
@@ -277,16 +285,21 @@ class SchedulingVisualizer(QDialog):
         else:
             self.processes = []
             for i, proc in enumerate(random.sample(system_processes, min(8, len(system_processes)))):
-                name = proc.info['name']
-                if platform.system() == 'Darwin' and isinstance(name, bytes):
-                    name = name.decode('utf-8', 'ignore')
-                self.processes.append(Process(
-                    proc.info['pid'],
-                    name[:15],
-                    i,
-                    random.randint(2, 10),
-                    random.randint(1, 5)
-                ))
+                try:
+                    name = proc.info['name']
+                    if platform.system() == 'Darwin' and isinstance(name, bytes):
+                        name = name.decode('utf-8', 'ignore')
+                    elif not isinstance(name, str):
+                        name = str(name)
+                    self.processes.append(Process(
+                        proc.info['pid'],
+                        name[:15],
+                        i,
+                        random.randint(2, 10),
+                        random.randint(1, 5)
+                    ))
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
         
         self.run_btn.setEnabled(True)
         
@@ -304,20 +317,30 @@ class SchedulingVisualizer(QDialog):
         
     def run_scheduling(self):
         algorithm = self.algorithm_combo.currentText()
+        is_preemptive = self.preemptive_check.isChecked()
         
-        if "FCFS" in algorithm:
-            result = self.fcfs_scheduling()
-        elif "SJF" in algorithm:
-            result = self.sjf_scheduling()
-        elif "Round Robin" in algorithm:
-            quantum = self.quantum_spin.value()
-            result = self.round_robin_scheduling(quantum)
-        elif "Priority" in algorithm:
-            result = self.priority_scheduling()
-        else:
-            return
-            
-        self.display_results(result)
+        self.run_btn.setEnabled(False)
+        QApplication.processEvents()
+        
+        try:
+            if "FCFS" in algorithm:
+                result = self.fcfs_scheduling()
+            elif "SJF" in algorithm:
+                result = self.sjf_scheduling(preemptive=is_preemptive)
+            elif "Round Robin" in algorithm:
+                quantum = self.quantum_spin.value()
+                result = self.round_robin_scheduling(quantum)
+            elif "Priority" in algorithm:
+                result = self.priority_scheduling(preemptive=is_preemptive)
+            else:
+                return
+                
+            self.display_results(result)
+        except Exception as e:
+            print(f"Error during scheduling: {e}")
+            QMessageBox.critical(self, "Error", f"An error occurred during scheduling: {e}")
+        finally:
+            self.run_btn.setEnabled(True)
         
     def fcfs_scheduling(self):
         result = SchedulingResult()
@@ -327,9 +350,7 @@ class SchedulingVisualizer(QDialog):
         gantt = []
         
         for process in processes:
-            # Ensure current time doesn't go before arrival time
             current_time = max(current_time, process.arrival_time)
-                
             process.completion_time = current_time + process.burst_time
             process.turnaround_time = max(0, process.completion_time - process.arrival_time)
             process.waiting_time = max(0, process.turnaround_time - process.burst_time)
@@ -339,47 +360,83 @@ class SchedulingVisualizer(QDialog):
             
         result.processes = processes
         result.gantt_chart = gantt
-        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
-        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
         
-    def sjf_scheduling(self):
+    def sjf_scheduling(self, preemptive=False):
         result = SchedulingResult()
-        processes = sorted(self.processes, key=lambda x: (x.arrival_time, x.burst_time))
-        
+        processes = sorted(self.processes, key=lambda x: x.arrival_time)
         current_time = 0
         gantt = []
-        ready_queue = []
-        i = 0
-        n = len(processes)
         
-        while i < n or ready_queue:
-            while i < n and processes[i].arrival_time <= current_time:
-                ready_queue.append(processes[i])
-                i += 1
+        if not preemptive:  # Non-preemptive SJF
+            ready_queue = []
+            i = 0
+            n = len(processes)
+            
+            while i < n or ready_queue:
+                while i < n and processes[i].arrival_time <= current_time:
+                    ready_queue.append(processes[i])
+                    i += 1
+                    
+                if not ready_queue:
+                    if i < n:
+                        current_time = processes[i].arrival_time
+                    continue
+                    
+                ready_queue.sort(key=lambda x: x.burst_time)
+                process = ready_queue.pop(0)
                 
-            if not ready_queue:
-                current_time = processes[i].arrival_time if i < n else current_time
-                continue
+                current_time = max(current_time, process.arrival_time)
+                process.completion_time = current_time + process.burst_time
+                process.turnaround_time = process.completion_time - process.arrival_time
+                process.waiting_time = process.turnaround_time - process.burst_time
                 
-            ready_queue.sort(key=lambda x: x.burst_time)
-            process = ready_queue.pop(0)
+                gantt.append((process.pid, current_time, process.completion_time))
+                current_time = process.completion_time
+                
+            result.processes = processes
+        else:  # Preemptive SJF (SRTF)
+            process_map = {p.pid: Process(p.pid, p.name, p.arrival_time, p.burst_time, p.priority) for p in processes}
+            ready_queue = []
+            i = 0
+            n = len(processes)
             
-            current_time = max(current_time, process.arrival_time)
-            process.completion_time = current_time + process.burst_time
-            process.turnaround_time = max(0, process.completion_time - process.arrival_time)
-            process.waiting_time = max(0, process.turnaround_time - process.burst_time)
-            
-            gantt.append((process.pid, current_time, process.completion_time))
-            current_time = process.completion_time
-            
-        result.processes = processes
-        result.gantt_chart = gantt
-        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
-        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
-        result.throughput = len(processes) / current_time if current_time > 0 else 0
+            while i < n or any(p.remaining_time > 0 for p in process_map.values()):
+                while i < n and processes[i].arrival_time <= current_time:
+                    ready_queue.append(process_map[processes[i].pid])
+                    i += 1
+                    
+                if not ready_queue:
+                    if i < n:
+                        current_time = processes[i].arrival_time
+                    continue
+                    
+                ready_queue.sort(key=lambda x: x.remaining_time)
+                process = ready_queue[0]
+                
+                if process.response_time == -1:
+                    process.response_time = current_time - process.arrival_time
+                    
+                gantt.append((process.pid, current_time, current_time + 1))
+                process.remaining_time -= 1
+                current_time += 1
+                
+                if process.remaining_time == 0:
+                    process.completion_time = current_time
+                    process.turnaround_time = process.completion_time - process.arrival_time
+                    process.waiting_time = process.turnaround_time - process.burst_time
+                    ready_queue.pop(0)
+                    
+            result.processes = list(process_map.values())
+        
+        result.gantt_chart = self.clean_gantt_chart(gantt)
+        result.avg_turnaround = sum(p.turnaround_time for p in result.processes) / len(result.processes)
+        result.avg_waiting = sum(p.waiting_time for p in result.processes) / len(result.processes)
+        result.throughput = len(result.processes) / current_time if current_time > 0 else 0
         
         return result
         
@@ -391,20 +448,20 @@ class SchedulingVisualizer(QDialog):
         gantt = []
         ready_queue = deque()
         remaining_processes = deque(processes.copy())
-        process_map = {p.pid: p for p in processes}
         
         while remaining_processes or ready_queue:
             while remaining_processes and remaining_processes[0].arrival_time <= current_time:
                 ready_queue.append(remaining_processes.popleft())
                 
             if not ready_queue:
-                current_time = remaining_processes[0].arrival_time if remaining_processes else current_time
+                if remaining_processes:
+                    current_time = remaining_processes[0].arrival_time
                 continue
                 
             process = ready_queue.popleft()
             
             if process.response_time == -1:
-                process.response_time = max(0, current_time - process.arrival_time)
+                process.response_time = current_time - process.arrival_time
                 
             exec_time = min(quantum, process.remaining_time)
             gantt.append((process.pid, current_time, current_time + exec_time))
@@ -419,54 +476,107 @@ class SchedulingVisualizer(QDialog):
                 ready_queue.append(process)
             else:
                 process.completion_time = current_time
-                process.turnaround_time = max(0, process.completion_time - process.arrival_time)
-                process.waiting_time = max(0, process.turnaround_time - process.burst_time)
+                process.turnaround_time = process.completion_time - process.arrival_time
+                process.waiting_time = process.turnaround_time - process.burst_time
                 
         result.processes = processes
-        result.gantt_chart = gantt
-        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
-        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
+        result.gantt_chart = self.clean_gantt_chart(gantt)
+        result.avg_turnaround = sum(p.turnaround_time for p in processes) / len(processes)
+        result.avg_waiting = sum(p.waiting_time for p in processes) / len(processes)
         result.throughput = len(processes) / current_time if current_time > 0 else 0
         
         return result
         
-    def priority_scheduling(self):
+    def priority_scheduling(self, preemptive=False):
         result = SchedulingResult()
-        processes = sorted(self.processes, key=lambda x: (x.arrival_time, x.priority))
-        
+        processes = sorted(self.processes, key=lambda x: x.arrival_time)
         current_time = 0
         gantt = []
-        ready_queue = []
-        i = 0
-        n = len(processes)
         
-        while i < n or ready_queue:
-            while i < n and processes[i].arrival_time <= current_time:
-                ready_queue.append(processes[i])
-                i += 1
+        if not preemptive:  # Non-preemptive Priority
+            ready_queue = []
+            i = 0
+            n = len(processes)
+            
+            while i < n or ready_queue:
+                while i < n and processes[i].arrival_time <= current_time:
+                    ready_queue.append(processes[i])
+                    i += 1
+                    
+                if not ready_queue:
+                    if i < n:
+                        current_time = processes[i].arrival_time
+                    continue
+                    
+                ready_queue.sort(key=lambda x: x.priority)
+                process = ready_queue.pop(0)
                 
-            if not ready_queue:
-                current_time = processes[i].arrival_time if i < n else current_time
-                continue
+                current_time = max(current_time, process.arrival_time)
+                process.completion_time = current_time + process.burst_time
+                process.turnaround_time = process.completion_time - process.arrival_time
+                process.waiting_time = process.turnaround_time - process.burst_time
                 
-            ready_queue.sort(key=lambda x: x.priority)
-            process = ready_queue.pop(0)
+                gantt.append((process.pid, current_time, process.completion_time))
+                current_time = process.completion_time
+                
+            result.processes = processes
+        else:  # Preemptive Priority
+            process_map = {p.pid: Process(p.pid, p.name, p.arrival_time, p.burst_time, p.priority) for p in processes}
+            ready_queue = []
+            i = 0
+            n = len(processes)
             
-            current_time = max(current_time, process.arrival_time)
-            process.completion_time = current_time + process.burst_time
-            process.turnaround_time = max(0, process.completion_time - process.arrival_time)
-            process.waiting_time = max(0, process.turnaround_time - process.burst_time)
-            
-            gantt.append((process.pid, current_time, process.completion_time))
-            current_time = process.completion_time
-            
-        result.processes = processes
-        result.gantt_chart = gantt
-        result.avg_turnaround = sum(max(0, p.turnaround_time) for p in processes) / len(processes)
-        result.avg_waiting = sum(max(0, p.waiting_time) for p in processes) / len(processes)
-        result.throughput = len(processes) / current_time if current_time > 0 else 0
+            while i < n or any(p.remaining_time > 0 for p in process_map.values()):
+                while i < n and processes[i].arrival_time <= current_time:
+                    ready_queue.append(process_map[processes[i].pid])
+                    i += 1
+                    
+                if not ready_queue:
+                    if i < n:
+                        current_time = processes[i].arrival_time
+                    continue
+                    
+                ready_queue.sort(key=lambda x: x.priority)
+                process = ready_queue[0]
+                
+                if process.response_time == -1:
+                    process.response_time = current_time - process.arrival_time
+                    
+                gantt.append((process.pid, current_time, current_time + 1))
+                process.remaining_time -= 1
+                current_time += 1
+                
+                if process.remaining_time == 0:
+                    process.completion_time = current_time
+                    process.turnaround_time = process.completion_time - process.arrival_time
+                    process.waiting_time = process.turnaround_time - process.burst_time
+                    ready_queue.pop(0)
+                    
+            result.processes = list(process_map.values())
+        
+        result.gantt_chart = self.clean_gantt_chart(gantt)
+        result.avg_turnaround = sum(p.turnaround_time for p in result.processes) / len(result.processes)
+        result.avg_waiting = sum(p.waiting_time for p in result.processes) / len(result.processes)
+        result.throughput = len(result.processes) / current_time if current_time > 0 else 0
         
         return result
+    
+    def clean_gantt_chart(self, gantt):
+        if not gantt:
+            return gantt
+            
+        cleaned_gantt = []
+        current_pid, current_start, current_end = gantt[0]
+        
+        for pid, start, end in gantt[1:]:
+            if pid == current_pid and start == current_end:
+                current_end = end
+            else:
+                cleaned_gantt.append((current_pid, current_start, current_end))
+                current_pid, current_start, current_end = pid, start, end
+                
+        cleaned_gantt.append((current_pid, current_start, current_end))
+        return cleaned_gantt
         
     def show_gantt_chart(self):
         if not self.result:
@@ -499,16 +609,16 @@ class SchedulingVisualizer(QDialog):
         pid_to_color = {p.pid: colors(i) for i, p in enumerate(self.result.processes)}
         
         max_time = max(end for _, _, end in self.result.gantt_chart)
-        y_ticks = []
+        y_pos = 0
         
-        for i, (pid, start, end) in enumerate(self.result.gantt_chart):
-            ax.broken_barh([(start, end - start)], (i - 0.4, 0.8), 
+        for pid, start, end in self.result.gantt_chart:
+            ax.broken_barh([(start, end - start)], (y_pos - 0.4, 0.8), 
                           facecolors=pid_to_color[pid])
-            ax.text((start + end) / 2, i, f"P{pid}", 
+            ax.text((start + end) / 2, y_pos, f"P{pid}", 
                    ha='center', va='center', color='white')
-            y_ticks.append(i)
+            y_pos += 1
             
-        ax.set_yticks(y_ticks)
+        ax.set_yticks(range(len(self.result.gantt_chart)))
         ax.set_yticklabels([f"P{pid}" for pid, _, _ in self.result.gantt_chart])
         ax.set_xlabel('Time', fontsize=12)
         ax.set_ylabel('Processes', fontsize=12)
@@ -699,6 +809,7 @@ class SystemMonitor(QMainWindow):
         super().__init__()
         self.setWindowTitle("Process Visualization Tool")
         self.current_theme = ThemeColors.DARK
+        self.process_limit = 15  # Default number of processes to display
         self.setup_ui()
         self.apply_theme(self.current_theme)
         
@@ -823,10 +934,22 @@ class SystemMonitor(QMainWindow):
         process_layout.setContentsMargins(10, 10, 10, 10)
         
         process_header = QHBoxLayout()
-        process_label = QLabel("ACTIVE PROCESSES")
-        process_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.process_button = QPushButton("ACTIVE PROCESSES")
+        self.process_button.setStyleSheet("""
+            QPushButton {
+                font-size: 16px;
+                font-weight: bold;
+                padding: 5px;
+                border: none;
+                background-color: transparent;
+            }
+            QPushButton:hover {
+                text-decoration: underline;
+            }
+        """)
+        self.process_button.clicked.connect(self.show_process_count_dialog)
         self.control_panel = ProcessControlPanel()
-        process_header.addWidget(process_label)
+        process_header.addWidget(self.process_button)
         process_header.addWidget(self.control_panel)
         
         self.process_table = QTableWidget()
@@ -950,6 +1073,19 @@ class SystemMonitor(QMainWindow):
         self.cpu_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
         self.mem_value.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {colors['text']};")
         self.mem_label_detail.setStyleSheet(f"font-size: 14px; color: {colors['text']};")
+        self.process_button.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 16px;
+                font-weight: bold;
+                padding: 5px;
+                border: none;
+                background-color: transparent;
+                color: {colors['text']};
+            }}
+            QPushButton:hover {{
+                text-decoration: underline;
+            }}
+        """)
         
     def update_progress_colors(self):
         cpu_value = self.cpu_progress.value()
@@ -979,6 +1115,74 @@ class SystemMonitor(QMainWindow):
                 border-radius: 5px;
             }}
         """)
+        
+    def show_process_count_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Number of Processes")
+        layout = QVBoxLayout(dialog)
+        
+        label = QLabel("Enter number of processes to display (or 'all' for all):")
+        layout.addWidget(label)
+        
+        input_box = QLineEdit()
+        layout.addWidget(input_box)
+        
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(lambda: self.handle_process_count(input_box.text(), dialog))
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        dialog.exec()
+        
+    def handle_process_count(self, count_str, dialog):
+        self.update_process_list(count_str)
+        dialog.accept()  # Close the dialog
+        
+    def update_process_list(self, count_str):
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status', 'username', 'create_time']):
+            try:
+                pinfo = proc.info
+                cpu_percent = pinfo['cpu_percent'] if pinfo['cpu_percent'] is not None else 0.0
+                mem_percent = pinfo['memory_percent'] if pinfo['memory_percent'] is not None else 0.0
+                create_time = datetime.fromtimestamp(pinfo['create_time']).strftime('%H:%M:%S')
+                
+                process_name = pinfo['name']
+                if platform.system() == 'Darwin' and isinstance(process_name, bytes):
+                    process_name = process_name.decode('utf-8', 'ignore')
+                elif not isinstance(process_name, str):
+                    process_name = str(process_name)
+                
+                processes.append([
+                    str(pinfo['pid']),
+                    process_name,
+                    f"{cpu_percent:.1f}",
+                    f"{mem_percent:.1f}",
+                    pinfo['status'],
+                    pinfo['username'],
+                    create_time
+                ])
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        processes.sort(key=lambda x: float(x[2]), reverse=True)
+        
+        if count_str.lower() == 'all':
+            self.process_limit = len(processes)
+        else:
+            try:
+                self.process_limit = int(count_str)
+                if self.process_limit <= 0:
+                    self.process_limit = 15  # Default to 15 if invalid
+            except ValueError:
+                self.process_limit = 15  # Default to 15 if invalid input
+                
+        self.process_table.setRowCount(min(len(processes), self.process_limit))
+        for i, proc in enumerate(processes[:self.process_limit]):
+            for j, value in enumerate(proc):
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignCenter)
+                self.process_table.setItem(i, j, item)
         
     def update_stats(self):
         # Update CPU
@@ -1010,47 +1214,14 @@ class SystemMonitor(QMainWindow):
         if mem_percent > self.alert_panel.memory_threshold:
             self.alert_panel.add_alert(f"High Memory usage: {mem_percent}%", "critical")
         
-        # Update Process List
-        processes = []
-        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status', 'username', 'create_time']):
-            try:
-                pinfo = proc.info
-                cpu_percent = pinfo['cpu_percent'] if pinfo['cpu_percent'] is not None else 0.0
-                mem_percent = pinfo['memory_percent'] if pinfo['memory_percent'] is not None else 0.0
-                create_time = datetime.fromtimestamp(pinfo['create_time']).strftime('%H:%M:%S')
-                
-                # Handle macOS-specific process name issue
-                process_name = pinfo['name']
-                if platform.system() == 'Darwin' and isinstance(process_name, bytes):
-                    process_name = process_name.decode('utf-8', 'ignore')
-                
-                processes.append([
-                    str(pinfo['pid']),
-                    process_name,
-                    f"{cpu_percent:.1f}",
-                    f"{mem_percent:.1f}",
-                    pinfo['status'],
-                    pinfo['username'],
-                    create_time
-                ])
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-        
-        processes.sort(key=lambda x: float(x[2]), reverse=True)
-        self.process_table.setRowCount(min(len(processes), 15))
-        
-        for i, proc in enumerate(processes[:15]):
-            for j, value in enumerate(proc):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignCenter)
-                self.process_table.setItem(i, j, item)
+        # Update Process List with the current process_limit
+        self.update_process_list(str(self.process_limit))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Set style to ensure consistent look across platforms
     if platform.system() == 'Darwin':
-        app.setStyle('Fusion')  # Fusion style works well on macOS
+        app.setStyle('Fusion')
         
     window = SystemMonitor()
     window.show()
